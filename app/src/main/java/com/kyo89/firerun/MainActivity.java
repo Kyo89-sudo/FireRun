@@ -60,6 +60,8 @@ public class MainActivity extends Activity {
     private static final long UPDATE_EVERY_MS = 2L * 60 * 60 * 1000;   // controllo ogni 2 ore
     private static final long REPROMPT_MS = 24L * 60 * 60 * 1000;      // se annulli, riprova dopo 24 h
     private static final int DEFAULT_DOCK_SIZE = 6;
+    private static final int DOCK_ICON = 66;   // dp: lato dell'icona nella barra
+    private static final int DOCK_GAP = 14;    // dp: spazio tra le icone
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();   // lettura app
@@ -76,7 +78,7 @@ public class MainActivity extends Activity {
     private GridLayout grid;
     private TextView allHeader, heroOver, heroTitle, heroMeta, clock, dateView;
     private TextView updatePill;
-    private View firstDockView, firstAllView;
+    private View firstDockView, firstAllView, dockPlus;
 
     private AppEntry heroApp;
     private String focusTag;
@@ -361,24 +363,47 @@ public class MainActivity extends Activity {
         return hero;
     }
 
+    /**
+     * Barra delle app: a sinistra le app (scorrono e restano DENTRO la barra),
+     * a destra «+» e «Tutte le app» fissi, sempre visibili.
+     */
     private View buildDock() {
-        FrameLayout box = new FrameLayout(this);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.TOP);
         box.setBackground(Ui.glass(this, 22));
         box.setClipChildren(false);
         box.setClipToPadding(false);
-        box.setPadding(0, dp(12), 0, dp(6));
+        box.setPadding(0, dp(4), dp(18), dp(4));
 
+        // Le app: lo scorrimento ritaglia ai bordi della barra (niente icone fuori),
+        // il margine interno lascia spazio all'ingrandimento dell'icona selezionata.
         HorizontalScrollView hs = new HorizontalScrollView(this);
         hs.setHorizontalScrollBarEnabled(false);
-        hs.setClipChildren(false);
+        hs.setClipChildren(true);
         hs.setClipToPadding(false);
-        hs.setPadding(dp(20), dp(4), dp(20), 0);
+        hs.setPadding(dp(18), dp(10), dp(10), dp(4));
         dockRow = new LinearLayout(this);
         dockRow.setOrientation(LinearLayout.HORIZONTAL);
         dockRow.setGravity(Gravity.TOP);
         dockRow.setClipChildren(false);
         hs.addView(dockRow);
-        box.addView(hs);
+        box.addView(hs, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        View sep = new View(this);
+        sep.setBackgroundColor(0x38FFFFFF);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(Math.max(1, dp(1)), dp(48));
+        slp.setMargins(dp(6), dp(19), dp(16), 0);
+        box.addView(sep, slp);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setClipChildren(false);
+        actions.setPadding(0, dp(10), 0, dp(4));
+        dockPlus = dockAction(R.drawable.ic_plus, "Aggiungi", true, v -> showAddApps());
+        actions.addView(dockPlus, marginEnd(DOCK_GAP));
+        actions.addView(dockAction(R.drawable.ic_grid, "Tutte le app", false, v -> scrollToAll()), marginEnd(0));
+        box.addView(actions, wrap());
         return box;
     }
 
@@ -436,21 +461,11 @@ public class MainActivity extends Activity {
             cleaned.add(k);
             View item = dockItem(a);
             if (firstDockView == null) firstDockView = item.findViewWithTag(SEC_DOCK + a.key);
-            dockRow.addView(item, marginEnd(16));
+            dockRow.addView(item, marginEnd(DOCK_GAP));
         }
         if (cleaned.size() != keys.size() && !apps.isEmpty()) prefs.setDock(cleaned);
 
-        View sep = new View(this);
-        sep.setBackgroundColor(0x38FFFFFF);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(Math.max(1, dp(1)), dp(54));
-        slp.setMargins(dp(4), dp(10), dp(20), 0);
-        dockRow.addView(sep, slp);
-
-        View plus = dockAction(R.drawable.ic_plus, "Aggiungi", true, v -> showAddApps());
-        dockRow.addView(plus, marginEnd(16));
-        View all = dockAction(R.drawable.ic_grid, "Tutte le app", false, v -> scrollToAll());
-        dockRow.addView(all, marginEnd(0));
-        if (firstDockView == null) firstDockView = plus.findViewWithTag("act:Aggiungi");
+        if (firstDockView == null) firstDockView = dockPlus.findViewWithTag("act:Aggiungi");
 
         // --- recenti ---
         recentRow.removeAllViews();
@@ -514,7 +529,7 @@ public class MainActivity extends Activity {
             ImageView iv = new ImageView(this);
             iv.setImageDrawable(copy(app.icon));
             iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            icon.addView(iv, new FrameLayout.LayoutParams(dp(50), dp(50), Gravity.CENTER));
+            icon.addView(iv, new FrameLayout.LayoutParams(dp(DOCK_ICON * 2 / 3), dp(DOCK_ICON * 2 / 3), Gravity.CENTER));
         } else {
             icon.addView(Ui.text(this, app.label.substring(0, 1), 30, true, Ui.WHITE),
                     new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -524,9 +539,8 @@ public class MainActivity extends Activity {
         label.setGravity(Gravity.CENTER);
         label.setAlpha(0f);
 
-        item.addView(icon, new LinearLayout.LayoutParams(dp(75), dp(75)));
-        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(dp(100), ViewGroup.LayoutParams.WRAP_CONTENT);
-        llp.topMargin = dp(8);
+        item.addView(icon, new LinearLayout.LayoutParams(dp(DOCK_ICON), dp(DOCK_ICON)));
+        LinearLayout.LayoutParams llp = labelParams();
         item.addView(label, llp);
 
         bindApp(icon, app, SEC_DOCK, 1.12f, 18, label);
@@ -553,7 +567,7 @@ public class MainActivity extends Activity {
         ImageView iv = new ImageView(this);
         iv.setImageResource(iconRes);
         iv.setImageTintList(android.content.res.ColorStateList.valueOf(Ui.WHITE));
-        box.addView(iv, new FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER));
+        box.addView(iv, new FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER));
         box.setFocusable(true);
         box.setClickable(true);
         box.setTag("act:" + text);
@@ -563,9 +577,8 @@ public class MainActivity extends Activity {
         final TextView label = Ui.oneLine(Ui.text(this, text, 11, true, Ui.WHITE));
         label.setGravity(Gravity.CENTER);
         label.setAlpha(0f);
-        item.addView(box, new LinearLayout.LayoutParams(dp(75), dp(75)));
-        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(dp(100), ViewGroup.LayoutParams.WRAP_CONTENT);
-        llp.topMargin = dp(8);
+        item.addView(box, new LinearLayout.LayoutParams(dp(DOCK_ICON), dp(DOCK_ICON)));
+        LinearLayout.LayoutParams llp = labelParams();
         item.addView(label, llp);
 
         final GradientDrawable ring = Ui.ring(this, 18);
@@ -576,6 +589,18 @@ public class MainActivity extends Activity {
             label.animate().alpha(has ? 1f : 0f).setDuration(140).start();
         });
         return item;
+    }
+
+    /**
+     * L'etichetta sotto l'icona è un po' più larga dell'icona ma non allarga la
+     * colonna: margini negativi, così lo spazio tra le icone resta quello previsto.
+     */
+    private LinearLayout.LayoutParams labelParams() {
+        int extra = dp(DOCK_GAP);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(DOCK_ICON) + 2 * extra,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(-extra, dp(7), -extra, 0);
+        return lp;
     }
 
     /** Riquadro 16:9 (Recenti e Tutte le app): banner TV se c'è, altrimenti icona e nome. */
