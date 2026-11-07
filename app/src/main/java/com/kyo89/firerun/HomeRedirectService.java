@@ -61,21 +61,18 @@ public class HomeRedirectService extends AccessibilityService {
 
         long now = System.currentTimeMillis();
         // Mentre è aperta una schermata di sistema lanciata da FireRun (Impostazioni, Info app…)
-        // si reindirizza solo una finestra che sembra proprio la home (Home premuto lì dentro).
+        // non si reindirizza nulla: su Fire OS 8 le Impostazioni girano nella stessa finestra
+        // della home Amazon e verrebbero chiuse subito. Si riattiva al ritorno in FireRun.
         boolean systemScreen = now < prefs.systemPauseUntil();
         boolean redirectIt = prefs.redirectEnabled()
                 && now >= prefs.bypassUntil()
-                && !shouldSkip(cls)
-                && (!systemScreen || looksLikeHome(cls));
+                && !systemScreen
+                && !shouldSkip(cls);
         prefs.logWindow(cls, redirectIt);
         if (!redirectIt) return;
 
         handler.removeCallbacks(redirect);
         handler.postDelayed(redirect, CONFIRM_DELAY_MS);
-    }
-
-    private static boolean looksLikeHome(String cls) {
-        return cls.toLowerCase(Locale.ROOT).contains("home");
     }
 
     private static boolean shouldSkip(String cls) {
