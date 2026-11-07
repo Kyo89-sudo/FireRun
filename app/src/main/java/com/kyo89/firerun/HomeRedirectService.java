@@ -1,7 +1,10 @@
 package com.kyo89.firerun;
 
 import android.accessibilityservice.AccessibilityService;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -26,6 +29,7 @@ public class HomeRedirectService extends AccessibilityService {
     /** Attesa prima di reindirizzare: lascia il tempo a FireRun di risultare in pausa. */
     private static final long CONFIRM_DELAY_MS = 250;
     private static final long MIN_GAP_MS = 700;
+    private static final long BOOT_WINDOW_MS = 4 * 60 * 1000;   // "appena acceso" = primi 4 minuti
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private long lastRedirect;
@@ -49,6 +53,40 @@ public class HomeRedirectService extends AccessibilityService {
             }
         }
     };
+
+    /** Schermo riacceso (risveglio dallo standby): Fire OS mostra la home Amazon. */
+    private final BroadcastReceiver screenOn = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context c, Intent i) {
+            bringFireRunSoon(1200);
+        }
+    };
+    private boolean screenOnRegistered;
+
+    /**
+     * Il servizio parte qualche istante DOPO che, all'accensione, è già comparsa la
+     * home Amazon: quell'evento è perso, quindi portiamo noi FireRun in primo piano.
+     * Ai servizi di accessibilità Android consente di aprire app da sottofondo.
+     */
+    @Override
+    protected void onServiceConnected() {
+        super.onServiceConnected();
+        if (!screenOnRegistered) {
+            registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
+            screenOnRegistered = true;
+        }
+        // Solo appena acceso: se il servizio ripartisse più tardi (es. FireRun chiuso da
+        // Android per liberare memoria) non deve toglierti dall'app che stai guardando.
+        if (SystemClock.elapsedRealtime() < BOOT_WINDOW_MS) bringFireRunSoon(1500);
+    }
+
+    private void bringFireRunSoon(long delayMs) {
+        Prefs prefs = new Prefs(this);
+        long now = System.currentTimeMillis();
+        if (!prefs.redirectEnabled() || now < prefs.bypassUntil() || now < prefs.systemPauseUntil()) return;
+        handler.removeCallbacks(redirect);
+        handler.postDelayed(redirect, delayMs);
+    }
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
@@ -91,6 +129,13 @@ public class HomeRedirectService extends AccessibilityService {
     @Override
     public void onDestroy() {
         handler.removeCallbacks(redirect);
+        if (screenOnRegistered) {
+            try {
+                unregisterReceiver(screenOn);
+            } catch (RuntimeException ignored) {
+            }
+            screenOnRegistered = false;
+        }
         super.onDestroy();
     }
 }

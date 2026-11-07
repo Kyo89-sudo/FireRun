@@ -117,7 +117,9 @@ if ($AttivaTastoHome) {
     else { $new = $cur }
     Invoke-Adb shell settings put secure enabled_accessibility_services $new | Out-Null
     Invoke-Adb shell settings put secure accessibility_enabled 1 | Out-Null
-    Write-Host "Servizio Tasto Home attivato." -ForegroundColor Green
+    # "Mostra sopra le altre app": consente a FireRun di aprirsi da solo all'accensione
+    Adb-Raw -s $Target shell appops set $Pkg SYSTEM_ALERT_WINDOW allow | Out-Null
+    Write-Host "Servizio Tasto Home attivato (con avvio automatico all'accensione)." -ForegroundColor Green
 }
 
 # --- home Amazon (facoltativo, reversibile) ---------------------------------
