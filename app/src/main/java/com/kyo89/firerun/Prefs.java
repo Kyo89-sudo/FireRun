@@ -103,9 +103,14 @@ final class Prefs {
         sp.edit().putLong("bypass", wallClockMs).apply();
     }
 
-    /** Sospende il Tasto Home mentre è aperta una schermata di sistema lanciata da FireRun (max 30 min). */
+    /**
+     * Apertura di una schermata di sistema da FireRun (Impostazioni…): su Fire OS 8 si apre
+     * dentro la home Amazon, quindi per qualche istante le sue finestre non vanno sostituite.
+     * Solo il tempo dell'apertura: dopo, quando con Indietro o Home ricompare la home Amazon,
+     * FireRun torna davanti come al solito.
+     */
     void pauseRedirectForSystemScreen() {
-        sp.edit().putLong("syspause", System.currentTimeMillis() + 30L * 60 * 1000).apply();
+        sp.edit().putLong("syspause", System.currentTimeMillis() + 4_000L).apply();
     }
 
     long systemPauseUntil() {
