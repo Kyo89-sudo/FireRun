@@ -64,7 +64,7 @@ final class Updater {
             try {
                 Intent i = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                         Uri.parse("package:" + a.getPackageName()));
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                // aperta sopra FireRun: Indietro torna a FireRun
                 new Prefs(a).pauseRedirectForSystemScreen(); // la schermata permessi può stare nel pacchetto Amazon
                 a.startActivity(i);
             } catch (RuntimeException e) {

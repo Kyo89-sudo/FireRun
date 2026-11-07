@@ -1135,8 +1135,8 @@ public class MainActivity extends Activity {
 
     private void openAccessibilitySettings() {
         try {
+            // Senza NEW_TASK: la schermata entra nel "contenitore" di FireRun e Indietro torna qui.
             Intent i = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             prefs.pauseRedirectForSystemScreen();
             startActivity(i);
             toast("Attiva «FireRun – Tasto Home» nell'elenco");
@@ -1225,13 +1225,14 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Apre una schermata di sistema (Impostazioni, Info app, Disinstalla…).
+     * Apre una schermata di sistema (Impostazioni, Info app, Disinstalla…) sopra FireRun.
      * Su Fire OS 8 molte di queste vivono nel pacchetto della home Amazon:
      * il Tasto Home le scambierebbe per la home e le chiuderebbe subito,
      * quindi il reindirizzamento resta sospeso finché non si torna in FireRun.
      */
     private void startSafe(Intent i) {
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        // Niente FLAG_ACTIVITY_NEW_TASK: la schermata di sistema si apre sopra FireRun,
+        // nel suo stesso task, così con Indietro si torna a FireRun e non alla home Amazon.
         try {
             prefs.pauseRedirectForSystemScreen();
             startActivity(i);
