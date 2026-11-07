@@ -94,6 +94,19 @@ final class Prefs {
         sp.edit().putLong("bypass", wallClockMs).apply();
     }
 
+    /** Sospende il Tasto Home mentre è aperta una schermata di sistema lanciata da FireRun (max 30 min). */
+    void pauseRedirectForSystemScreen() {
+        sp.edit().putLong("syspause", System.currentTimeMillis() + 30L * 60 * 1000).apply();
+    }
+
+    long systemPauseUntil() {
+        return sp.getLong("syspause", 0L);
+    }
+
+    void clearPauses() {
+        sp.edit().putLong("syspause", 0L).putLong("bypass", 0L).apply();
+    }
+
     List<String> recentWindows() {
         return split(sp.getString("windows", ""));
     }

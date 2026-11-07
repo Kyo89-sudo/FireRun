@@ -59,14 +59,23 @@ public class HomeRedirectService extends AccessibilityService {
         String cls = event.getClassName() != null ? event.getClassName().toString() : "";
         Prefs prefs = new Prefs(this);
 
+        long now = System.currentTimeMillis();
+        // Mentre è aperta una schermata di sistema lanciata da FireRun (Impostazioni, Info app…)
+        // si reindirizza solo una finestra che sembra proprio la home (Home premuto lì dentro).
+        boolean systemScreen = now < prefs.systemPauseUntil();
         boolean redirectIt = prefs.redirectEnabled()
-                && System.currentTimeMillis() >= prefs.bypassUntil()
-                && !shouldSkip(cls);
+                && now >= prefs.bypassUntil()
+                && !shouldSkip(cls)
+                && (!systemScreen || looksLikeHome(cls));
         prefs.logWindow(cls, redirectIt);
         if (!redirectIt) return;
 
         handler.removeCallbacks(redirect);
         handler.postDelayed(redirect, CONFIRM_DELAY_MS);
+    }
+
+    private static boolean looksLikeHome(String cls) {
+        return cls.toLowerCase(Locale.ROOT).contains("home");
     }
 
     private static boolean shouldSkip(String cls) {

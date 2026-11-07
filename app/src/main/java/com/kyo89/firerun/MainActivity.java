@@ -136,6 +136,8 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         visible = true;
+        // Tornati in FireRun: il tasto Home riprende a funzionare normalmente.
+        if (prefs.bypassUntil() != 0 || prefs.systemPauseUntil() != 0) prefs.clearPauses();
         checkUpdate(false); // dopo visible=true: l'auto-aggiornamento parte solo con FireRun davanti
     }
 
@@ -1085,6 +1087,7 @@ public class MainActivity extends Activity {
         try {
             Intent i = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            prefs.pauseRedirectForSystemScreen();
             startActivity(i);
             toast("Attiva «FireRun – Tasto Home» nell'elenco");
         } catch (RuntimeException e) {
@@ -1171,11 +1174,19 @@ public class MainActivity extends Activity {
         startSafe(new Intent(Settings.ACTION_SETTINGS));
     }
 
+    /**
+     * Apre una schermata di sistema (Impostazioni, Info app, Disinstalla…).
+     * Su Fire OS 8 molte di queste vivono nel pacchetto della home Amazon:
+     * il Tasto Home le scambierebbe per la home e le chiuderebbe subito,
+     * quindi il reindirizzamento resta sospeso finché non si torna in FireRun.
+     */
     private void startSafe(Intent i) {
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
+            prefs.pauseRedirectForSystemScreen();
             startActivity(i);
         } catch (RuntimeException e) {
+            prefs.clearPauses();
             toast("Funzione non disponibile su questo dispositivo");
         }
     }
