@@ -68,12 +68,13 @@ final class Prefs {
 
     // --- aspetto ---
 
-    long wallpaperStamp() {
-        return sp.getLong("wall_stamp", 0L);
+    /** Impronta dell'ultima immagine importata da Download (per non reimportarla). */
+    long importStamp() {
+        return sp.getLong("wall_import", 0L);
     }
 
-    void setWallpaperStamp(long v) {
-        sp.edit().putLong("wall_stamp", v).apply();
+    void setImportStamp(long v) {
+        sp.edit().putLong("wall_import", v).apply();
     }
 
     int theme() {

@@ -113,7 +113,6 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         prefs = new Prefs(this);
-        getExternalFilesDir(null); // crea la cartella dove deploy.ps1 copia l'immagine di sfondo
         computeSizes();
         buildShell();
     }
@@ -1057,7 +1056,7 @@ public class MainActivity extends Activity {
         addRow(g1, rows, "Apri la home Amazon per 60 secondi", "Apri ›", Ui.TEXT_DIM, holder, i -> openAmazonHome());
 
         LinearLayout g2 = group(panel);
-        final boolean hasImage = wallpaperFile() != null && wallpaperFile().isFile();
+        final boolean hasImage = wallpaperFile().isFile();
         addRow(g2, rows, "Sfondo", ShelfView.NAMES[theme], Ui.TEXT_DIM, holder, i -> {
             int next = (theme + 1) % ShelfView.themeCount();
             if (next == ShelfView.THEME_IMAGE && !hasImage) next = (next + 1) % ShelfView.themeCount();
@@ -1193,33 +1192,73 @@ public class MainActivity extends Activity {
     // ================================================================ immagine di sfondo dal PC
 
     private static final String WALLPAPER_NAME = "sfondo";
-    private long loadedWallpaperStamp;
+    /** Nome con cui deploy.ps1 -Sfondo mette l'immagine nella cartella Download del Fire Stick. */
+    private static final String IMPORT_NAME = "FireRun-sfondo";
+    private static final String[] IMPORT_EXT = {"jpg", "jpeg", "png", "webp"};
+    private volatile long loadedWallpaperStamp;
 
-    /** File copiato da deploy.ps1 -Sfondo (cartella privata di FireRun, nessun permesso necessario). */
+    /** Copia privata dell'immagine di sfondo (memoria interna di FireRun). */
     private java.io.File wallpaperFile() {
-        java.io.File dir = getExternalFilesDir(null);
-        return dir == null ? null : new java.io.File(dir, WALLPAPER_NAME);
+        return new java.io.File(getFilesDir(), WALLPAPER_NAME);
+    }
+
+    /**
+     * Fire OS non lascia scrivere ad ADB nella cartella privata delle app: lo script
+     * mette l'immagine in Download (e concede il permesso di leggere le immagini),
+     * qui la importiamo nella memoria privata e proviamo a togliere la copia.
+     */
+    private boolean importWallpaperFromDownload() {
+        java.io.File dl = android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOWNLOADS);
+        for (String ext : IMPORT_EXT) {
+            java.io.File src = new java.io.File(dl, IMPORT_NAME + "." + ext);
+            if (!src.isFile() || !src.canRead()) continue;
+            long stamp = src.lastModified() ^ (src.length() << 20);
+            if (stamp == prefs.importStamp()) continue; // già importata (la copia non si è potuta cancellare)
+            java.io.File tmp = new java.io.File(getFilesDir(), WALLPAPER_NAME + ".tmp");
+            try (java.io.InputStream in = new java.io.FileInputStream(src);
+                 java.io.OutputStream out = new java.io.FileOutputStream(tmp)) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            } catch (java.io.IOException e) {
+                //noinspection ResultOfMethodCallIgnored
+                tmp.delete();
+                continue;
+            }
+            java.io.File dest = wallpaperFile();
+            //noinspection ResultOfMethodCallIgnored
+            dest.delete();
+            if (!tmp.renameTo(dest)) continue;
+            prefs.setImportStamp(stamp);
+            //noinspection ResultOfMethodCallIgnored
+            src.delete();
+            return true;
+        }
+        return false;
     }
 
     private void checkWallpaper() {
-        final java.io.File f = wallpaperFile();
-        if (f == null || !f.isFile()) {
-            loadedWallpaperStamp = 0;
-            shelf.setImage(null);
-            if (prefs.theme() == ShelfView.THEME_IMAGE) {
-                prefs.setTheme(0);
-                shelf.setTheme(0);
-            }
-            return;
-        }
-        final long stamp = f.lastModified() ^ (f.length() << 20);
-        if (stamp == loadedWallpaperStamp) return;
-        loadedWallpaperStamp = stamp;
-        final boolean isNew = stamp != prefs.wallpaperStamp();
         final int maxW = Math.max(getResources().getDisplayMetrics().widthPixels,
                 getResources().getDisplayMetrics().heightPixels);
         try {
             io.execute(() -> {
+                final boolean imported = importWallpaperFromDownload();
+                final java.io.File f = wallpaperFile();
+                if (!f.isFile()) {
+                    ui.post(() -> {
+                        if (isDestroyed()) return;
+                        loadedWallpaperStamp = 0;
+                        shelf.setImage(null);
+                        if (prefs.theme() == ShelfView.THEME_IMAGE) {
+                            prefs.setTheme(0);
+                            shelf.setTheme(0);
+                        }
+                    });
+                    return;
+                }
+                final long stamp = f.lastModified() ^ (f.length() << 20);
+                if (!imported && stamp == loadedWallpaperStamp) return;
                 final Bitmap b = decodeScaled(f, maxW);
                 ui.post(() -> {
                     if (isDestroyed()) return;
@@ -1227,9 +1266,9 @@ public class MainActivity extends Activity {
                         toast("L'immagine di sfondo non è valida (usa un JPG o PNG)");
                         return;
                     }
+                    loadedWallpaperStamp = stamp;
                     shelf.setImage(b);
-                    if (isNew) {
-                        prefs.setWallpaperStamp(stamp);
+                    if (imported) {
                         prefs.setTheme(ShelfView.THEME_IMAGE);
                         shelf.setTheme(ShelfView.THEME_IMAGE);
                         toast("Nuovo sfondo applicato");
@@ -1258,10 +1297,8 @@ public class MainActivity extends Activity {
     }
 
     private void removeWallpaper() {
-        java.io.File f = wallpaperFile();
-        if (f != null) //noinspection ResultOfMethodCallIgnored
-            f.delete();
-        prefs.setWallpaperStamp(0);
+        //noinspection ResultOfMethodCallIgnored
+        wallpaperFile().delete();
         loadedWallpaperStamp = 0;
         shelf.setImage(null);
         prefs.setTheme(0);

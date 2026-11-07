@@ -111,17 +111,24 @@ if ($Force -or $latest -gt $installed) {
 }
 
 # --- immagine di sfondo ------------------------------------------------------
+# Fire OS non lascia scrivere ad ADB nella cartella privata delle app: l'immagine va
+# in Download, FireRun riceve il permesso di leggere le immagini e la importa da sé.
 if ($Sfondo) {
     if (-not (Test-Path -LiteralPath $Sfondo -PathType Leaf)) { throw "Immagine non trovata: $Sfondo" }
     $ext = [IO.Path]::GetExtension($Sfondo).ToLowerInvariant()
     if ($ext -notin @(".jpg", ".jpeg", ".png", ".webp")) { throw "Usa un'immagine JPG, PNG o WEBP (trovato: $ext)" }
-    $remoteDir = "/sdcard/Android/data/$Pkg/files"
-    Adb-Raw -s $Target shell mkdir -p $remoteDir | Out-Null
+    $remote = "/sdcard/Download/FireRun-sfondo$ext"
+    Adb-Raw -s $Target shell "rm -f /sdcard/Download/FireRun-sfondo.*" | Out-Null
     Write-Host "Copio lo sfondo sul Fire Stick..."
-    Invoke-Adb push (Resolve-Path -LiteralPath $Sfondo).Path "$remoteDir/sfondo" | Out-Null
-    # Riporta FireRun in primo piano: rilegge lo sfondo e lo applica subito
+    Invoke-Adb push (Resolve-Path -LiteralPath $Sfondo).Path $remote | Out-Null
+    # Permesso di leggere le immagini (su Fire OS 8 = Android 11 è READ_EXTERNAL_STORAGE)
+    Adb-Raw -s $Target shell pm grant $Pkg android.permission.READ_EXTERNAL_STORAGE | Out-Null
+    Adb-Raw -s $Target shell pm grant $Pkg android.permission.READ_MEDIA_IMAGES | Out-Null
+    # Riporta FireRun in primo piano: importa l'immagine e la applica subito
     Invoke-Adb shell am start -n "$Pkg/.MainActivity" | Out-Null
-    Write-Host "Sfondo inviato: FireRun lo applica subito." -ForegroundColor Green
+    Start-Sleep -Seconds 4
+    Adb-Raw -s $Target shell "rm -f /sdcard/Download/FireRun-sfondo.*" | Out-Null
+    Write-Host "Sfondo inviato e applicato." -ForegroundColor Green
 }
 
 # --- tasto Home --------------------------------------------------------------
