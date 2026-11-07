@@ -3,7 +3,8 @@
 Launcher per Fire TV Stick 4K Max (e qualsiasi Android TV) in stile Fire TV, modernizzato con
 l'aspetto vetro di macOS Sequoia. Nessuna pubblicità, nessun contenuto sponsorizzato.
 
-- Barra in alto: Home, Cerca, App, Impostazioni, orologio
+- Barra in alto: Home, Cerca, App, Impostazioni (del Fire Stick), orologio
+- **Opzioni di FireRun**: OK sul logo FireRun in alto a sinistra (oppure OK tenuto premuto su Impostazioni)
 - Area grande con l'app selezionata e i pulsanti Apri / Opzioni
 - Barra delle app in vetro con pulsante **+** per aggiungere o togliere app
 - Recenti e Tutte le app (con i banner TV delle app)

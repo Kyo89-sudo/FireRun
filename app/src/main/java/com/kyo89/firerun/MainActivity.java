@@ -275,13 +275,36 @@ public class MainActivity extends Activity {
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
 
+        // Logo + nome: pulsante che apre le Opzioni di FireRun (come il menu Apple su macOS).
+        LinearLayout brandBtn = new LinearLayout(this);
+        brandBtn.setOrientation(LinearLayout.HORIZONTAL);
+        brandBtn.setGravity(Gravity.CENTER_VERTICAL);
+        brandBtn.setPadding(dp(6), dp(5), dp(12), dp(5));
+        brandBtn.setFocusable(true);
+        brandBtn.setClickable(true);
+        brandBtn.setContentDescription("Opzioni FireRun");
+        GradientDrawable brandFocus = Ui.round(this, 999, 0x33FFFFFF);
+        brandFocus.setStroke(dp(2), Ui.WHITE);
+        android.graphics.drawable.StateListDrawable brandBg = new android.graphics.drawable.StateListDrawable();
+        brandBg.addState(new int[]{android.R.attr.state_focused}, brandFocus);
+        brandBg.addState(new int[]{android.R.attr.state_pressed}, brandFocus);
+        brandBg.addState(new int[]{}, Ui.round(this, 999, Color.TRANSPARENT));
+        brandBtn.setBackground(brandBg);
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.ic_launcher);
-        bar.addView(logo, new LinearLayout.LayoutParams(dp(26), dp(26)));
+        brandBtn.addView(logo, new LinearLayout.LayoutParams(dp(26), dp(26)));
         TextView brand = Ui.text(this, "FireRun", 17, true, Ui.WHITE);
         LinearLayout.LayoutParams blp = wrap();
         blp.leftMargin = dp(8);
-        bar.addView(brand, blp);
+        brandBtn.addView(brand, blp);
+        brandBtn.setOnClickListener(v -> showOptions(0));
+        brandBtn.setOnFocusChangeListener((v, has) -> {
+            float sc = has ? 1.06f : 1f;
+            v.animate().scaleX(sc).scaleY(sc).setDuration(120).start();
+        });
+        LinearLayout.LayoutParams bblp = wrap();
+        bblp.leftMargin = -dp(6);
+        bar.addView(brandBtn, bblp);
 
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
@@ -290,7 +313,13 @@ public class MainActivity extends Activity {
         nav.addView(navPill("Home", R.drawable.ic_home, v -> goTop()));
         nav.addView(navPill("Cerca", R.drawable.ic_search, v -> showSearch()));
         nav.addView(navPill("App", R.drawable.ic_apps, v -> scrollToAll()));
-        nav.addView(navPill("Impostazioni", R.drawable.ic_settings, v -> openSystemSettings()));
+        TextView sysSettings = navPill("Impostazioni", R.drawable.ic_settings, v -> openSystemSettings());
+        // OK tenuto premuto su Impostazioni → Opzioni di FireRun
+        sysSettings.setOnLongClickListener(v -> {
+            showOptions(0);
+            return true;
+        });
+        nav.addView(sysSettings);
         LinearLayout.LayoutParams nlp = wrap();
         nlp.leftMargin = dp(16);
         bar.addView(nav, nlp);
