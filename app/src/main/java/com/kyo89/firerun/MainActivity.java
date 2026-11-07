@@ -146,7 +146,7 @@ public class MainActivity extends Activity {
         super.onResume();
         visible = true;
         // Tornati in FireRun: il tasto Home riprende a funzionare normalmente.
-        if (prefs.bypassUntil() != 0 || prefs.systemPauseUntil() != 0) prefs.clearPauses();
+        HomeRedirectService.shown(); // FireRun è davanti: il servizio toglie il velo
         checkUpdate(false); // dopo visible=true: l'auto-aggiornamento parte solo con FireRun davanti
         checkWallpaper();
     }
@@ -729,13 +729,43 @@ public class MainActivity extends Activity {
 
     // ================================================================ azioni sulle app
 
+    private static final String APPSTORE = "com.amazon.venezia";
+
     private void launch(AppEntry app) {
         prefs.addRecent(app.key);
+        HomeRedirectService.arrived(this); // un ritorno a FireRun in coda non deve interrompere l'app
         try {
-            startActivity(app.launchIntent());
+            startActivity(launchIntentFor(app));
         } catch (RuntimeException e) {
             toast("Impossibile aprire " + app.label);
         }
+    }
+
+    /**
+     * Su Fire OS 8 l'ingresso dell'Appstore apre la home Amazon con la griglia delle app, che il
+     * Tasto Home sostituirebbe subito: apriamo direttamente il negozio. (Da dumbtv, MIT.)
+     */
+    private Intent launchIntentFor(AppEntry app) {
+        if (android.os.Build.VERSION.SDK_INT >= 30 && APPSTORE.equals(app.pkg)) {
+            Intent store = new Intent(Intent.ACTION_MAIN)
+                    .setClassName(APPSTORE, APPSTORE + ".ade.ADEHomeActivity")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+            if (store.resolveActivity(getPackageManager()) != null) return store;
+        }
+        return app.launchIntent();
+    }
+
+    /** min_futurity=0 (impostato da deploy.ps1): il ritorno a FireRun dopo Home parte senza attese. */
+    private boolean fastHomeEnabled() {
+        try {
+            String c = Settings.Global.getString(getContentResolver(), "alarm_manager_constants");
+            if (c == null) return false;
+            for (String kv : c.split(",")) {
+                if (kv.trim().equals("min_futurity=0")) return true;
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return false;
     }
 
     private void showAppMenu(final AppEntry app) {
@@ -1053,7 +1083,15 @@ public class MainActivity extends Activity {
                     prefs.setRedirectEnabled(!prefs.redirectEnabled());
                     showOptions(i);
                 });
-        addRow(g1, rows, "Apri la home Amazon per 60 secondi", "Apri ›", Ui.TEXT_DIM, holder, i -> openAmazonHome());
+        addRow(g1, rows, "Apri la home Amazon", "Apri ›", Ui.TEXT_DIM, holder, i -> openAmazonHome());
+        final boolean fast = fastHomeEnabled();
+        addRow(g1, rows, "Tasto Home istantaneo", fast ? "Attivo" : "deploy.ps1 -AttivaTastoHome",
+                fast ? Ui.OK_GREEN : Ui.ACCENT_LIGHT, holder, i -> {
+                    if (!fast) GlassMenu.message(this, "Tasto Home istantaneo",
+                            "Dopo il tasto Home, Android ritarda di qualche secondo l'apertura delle app. "
+                                    + "FireRun lo aggira, ma serve un'impostazione che si attiva solo dal PC:\n\n"
+                                    + "powershell -ExecutionPolicy Bypass -File .\\deploy.ps1 -FireStick <IP> -AttivaTastoHome");
+                });
 
         LinearLayout g2 = group(panel);
         final boolean hasImage = wallpaperFile().isFile();
@@ -1151,7 +1189,6 @@ public class MainActivity extends Activity {
         try {
             // Senza NEW_TASK: la schermata entra nel "contenitore" di FireRun e Indietro torna qui.
             Intent i = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-            prefs.pauseRedirectForSystemScreen();
             startActivity(i);
             toast("Attiva «FireRun – Tasto Home» nell'elenco");
         } catch (RuntimeException e) {
@@ -1164,8 +1201,9 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Apre la home Amazon e la lascia sullo schermo finché non apri un'altra app. */
     private void openAmazonHome() {
-        prefs.setBypassUntil(System.currentTimeMillis() + 60_000);
+        HomeRedirectService.pause();
         Intent i = getPackageManager().getLaunchIntentForPackage(HomeRedirectService.AMAZON_LAUNCHER);
         if (i == null) {
             i = new Intent(Intent.ACTION_MAIN)
@@ -1352,24 +1390,25 @@ public class MainActivity extends Activity {
 
     // ================================================================ varie
 
+    /**
+     * Su Fire OS il comando generico ACTION_SETTINGS apre uno "stub" che riapre la home Amazon
+     * (per questo prima con Indietro si finiva lì). L'ingresso LEANBACK_SETTINGS apre la vera
+     * schermata delle Impostazioni. (Soluzione trovata da dumbtv, MIT.)
+     */
     private void openSystemSettings() {
-        startSafe(new Intent(Settings.ACTION_SETTINGS));
+        Intent tv = new Intent(Intent.ACTION_MAIN).addCategory("android.intent.category.LEANBACK_SETTINGS");
+        startSafe(tv.resolveActivity(getPackageManager()) != null ? tv : new Intent(Settings.ACTION_SETTINGS));
     }
 
     /**
-     * Apre una schermata di sistema (Impostazioni, Info app, Disinstalla…) sopra FireRun.
-     * Su Fire OS 8 molte di queste vivono nel pacchetto della home Amazon:
-     * il Tasto Home le scambierebbe per la home e le chiuderebbe subito,
-     * quindi il reindirizzamento resta sospeso finché non si torna in FireRun.
+     * Apre una schermata di sistema (Impostazioni, Info app, Disinstalla…) sopra FireRun, nel suo
+     * stesso task: con Indietro si torna a FireRun. Il Tasto Home sostituisce solo la home Amazon
+     * vera e propria, quindi queste schermate restano aperte.
      */
     private void startSafe(Intent i) {
-        // Niente FLAG_ACTIVITY_NEW_TASK: la schermata di sistema si apre sopra FireRun,
-        // nel suo stesso task, così con Indietro si torna a FireRun e non alla home Amazon.
         try {
-            prefs.pauseRedirectForSystemScreen();
             startActivity(i);
         } catch (RuntimeException e) {
-            prefs.clearPauses();
             toast("Funzione non disponibile su questo dispositivo");
         }
     }

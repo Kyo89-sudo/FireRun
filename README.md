@@ -80,12 +80,12 @@ consentire a FireRun di installare app; poi a ogni aggiornamento basta confermar
 
 ## Tasto Home e home Amazon
 
-- Il servizio di accessibilità vede solo quando si apre la home Amazon e la sostituisce
-  (si vede un attimo, poi compare FireRun). Lo attivi con `-AttivaTastoHome` o da
-  Impostazioni → Accessibilità → FireRun – Tasto Home.
-- **Opzioni → Diagnostica finestre Amazon** mostra cosa è stato sostituito e cosa no:
-  il filtro è nella lista `SKIP` di `HomeRedirectService.java`.
-- **Opzioni → Apri la home Amazon per 60 secondi** se ti serve qualcosa di Amazon.
+- Il servizio di accessibilità vede quando compare la home Amazon (`HomeActivity_vNext`) e la
+  sostituisce con FireRun, coprendola con un velo così non si vede. Le Impostazioni e le altre
+  schermate Amazon restano aperte. Attivalo con `deploy.ps1 -AttivaTastoHome`: imposta anche
+  `min_futurity=0`, che rende istantaneo il ritorno a FireRun dopo il tasto Home.
+- **Opzioni → Diagnostica finestre Amazon** mostra quali schermate Amazon sono state viste e sostituite.
+- **Opzioni → Apri la home Amazon** se ti serve qualcosa di Amazon: resta aperta finché non apri un'altra app.
 - Facoltativo: `deploy.ps1 -DisattivaHomeAmazon` prova a disattivare la home Amazon
   (su molte versioni di Fire OS non è permesso). Se riesce, FireRun diventa l'unica home.
   Si annulla con `-RiattivaHomeAmazon`; nel caso peggiore c'è il ripristino di fabbrica
@@ -97,3 +97,9 @@ consentire a FireRun di installare app; poi a ogni aggiornamento basta confermar
 - Non funziona sui modelli con Vega OS (es. Fire TV Stick 4K Select), che non installano APK.
 - La chiave di firma sta solo nei Secrets di GitHub, così ogni build si installa sopra la precedente.
 - Per compilare in locale serve Android Studio (apri la cartella come progetto).
+
+## Crediti
+
+Il sistema del Tasto Home (riconoscimento esatto della home Amazon, velo, avvio istantaneo
+dopo Home) è ripreso da [dumbtv](https://github.com/humblemuzzu/dumbtv), licenza MIT.
+Dettagli in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

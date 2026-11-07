@@ -132,17 +132,45 @@ if ($Sfondo) {
 }
 
 # --- tasto Home --------------------------------------------------------------
+# Sistema ripreso da dumbtv (https://github.com/humblemuzzu/dumbtv, MIT).
 if ($AttivaTastoHome) {
     $svc = "$Pkg/.HomeRedirectService"
     $cur = (Adb-Raw -s $Target shell settings get secure enabled_accessibility_services).Trim()
-    if ([string]::IsNullOrEmpty($cur) -or $cur -eq "null") { $new = $svc }
-    elseif ($cur -notlike "*$svc*") { $new = "${cur}:${svc}" }
-    else { $new = $cur }
-    Invoke-Adb shell settings put secure enabled_accessibility_services $new | Out-Null
+    if ($cur -eq "null") { $cur = "" }
+    $others = @($cur -split ":" | Where-Object { $_ -and $_ -ne $svc -and $_ -ne "$Pkg/$Pkg.HomeRedirectService" })
+    # Prima senza FireRun, poi con: così Fire OS ricollega il servizio anche dopo un aggiornamento.
+    Invoke-Adb shell settings put secure enabled_accessibility_services "`"$($others -join ':')`"" | Out-Null
+    Start-Sleep -Milliseconds 500
+    Invoke-Adb shell settings put secure enabled_accessibility_services (($others + $svc) -join ":") | Out-Null
     Invoke-Adb shell settings put secure accessibility_enabled 1 | Out-Null
+
+    # Tasto Home istantaneo: dopo Home Android ritarda di 5 s l'apertura delle app; FireRun
+    # la fa partire da un allarme di sistema, che scatta subito solo con min_futurity=0.
+    $sdk = [int]((Adb-Raw -s $Target shell getprop ro.build.version.sdk).Trim())
+    if ($sdk -ge 31) {
+        Adb-Raw -s $Target shell device_config put alarm_manager min_futurity 0 | Out-Null
+    } else {
+        $consts = (Adb-Raw -s $Target shell settings get global alarm_manager_constants).Trim()
+        if ($consts -eq "null") { $consts = "" }
+        $kv = @($consts -split "," | Where-Object { $_ -and $_ -notlike "min_futurity=*" }) + "min_futurity=0"
+        Invoke-Adb shell settings put global alarm_manager_constants ($kv -join ",") | Out-Null
+    }
+
     # "Mostra sopra le altre app": consente a FireRun di aprirsi da solo all'accensione
     Adb-Raw -s $Target shell appops set $Pkg SYSTEM_ALERT_WINDOW allow | Out-Null
-    Write-Host "Servizio Tasto Home attivato (con avvio automatico all'accensione)." -ForegroundColor Green
+
+    # Verifica che Fire OS abbia davvero collegato il servizio
+    $bound = $false
+    for ($i = 0; $i -lt 10; $i++) {
+        # dumpsys mostra l'etichetta del servizio collegato ("FireRun – Tasto Home"), non il suo nome
+        if ((Adb-Raw -s $Target shell dumpsys accessibility) -match "Service\[label=FireRun|firerun\.HomeRedirectService") { $bound = $true; break }
+        Start-Sleep -Seconds 1
+    }
+    if ($bound) {
+        Write-Host "Tasto Home attivato: istantaneo e con avvio automatico all'accensione." -ForegroundColor Green
+    } else {
+        Write-Host "Attenzione: Fire OS non risulta aver collegato il servizio Tasto Home. Riavvia il Fire Stick e rilancia con -AttivaTastoHome." -ForegroundColor Yellow
+    }
 }
 
 # --- home Amazon (facoltativo, reversibile) ---------------------------------

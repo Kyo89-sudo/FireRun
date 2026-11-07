@@ -95,32 +95,6 @@ final class Prefs {
         sp.edit().putBoolean("redirect", on).apply();
     }
 
-    long bypassUntil() {
-        return sp.getLong("bypass", 0L);
-    }
-
-    void setBypassUntil(long wallClockMs) {
-        sp.edit().putLong("bypass", wallClockMs).apply();
-    }
-
-    /**
-     * Apertura di una schermata di sistema da FireRun (Impostazioni…): su Fire OS 8 si apre
-     * dentro la home Amazon, quindi per qualche istante le sue finestre non vanno sostituite.
-     * Solo il tempo dell'apertura: dopo, quando con Indietro o Home ricompare la home Amazon,
-     * FireRun torna davanti come al solito.
-     */
-    void pauseRedirectForSystemScreen() {
-        sp.edit().putLong("syspause", System.currentTimeMillis() + 4_000L).apply();
-    }
-
-    long systemPauseUntil() {
-        return sp.getLong("syspause", 0L);
-    }
-
-    void clearPauses() {
-        sp.edit().putLong("syspause", 0L).putLong("bypass", 0L).apply();
-    }
-
     List<String> recentWindows() {
         return split(sp.getString("windows", ""));
     }
