@@ -139,7 +139,12 @@ if ($AttivaTastoHome) {
     if ($cur -eq "null") { $cur = "" }
     $others = @($cur -split ":" | Where-Object { $_ -and $_ -ne $svc -and $_ -ne "$Pkg/$Pkg.HomeRedirectService" })
     # Prima senza FireRun, poi con: così Fire OS ricollega il servizio anche dopo un aggiornamento.
-    Invoke-Adb shell settings put secure enabled_accessibility_services "`"$($others -join ':')`"" | Out-Null
+    # (Windows PowerShell 5.1 perde le virgolette vuote: senza altri servizi si cancella la voce)
+    if ($others.Count -gt 0) {
+        Invoke-Adb shell settings put secure enabled_accessibility_services ($others -join ":") | Out-Null
+    } else {
+        Adb-Raw -s $Target shell settings delete secure enabled_accessibility_services | Out-Null
+    }
     Start-Sleep -Milliseconds 500
     Invoke-Adb shell settings put secure enabled_accessibility_services (($others + $svc) -join ":") | Out-Null
     Invoke-Adb shell settings put secure accessibility_enabled 1 | Out-Null
