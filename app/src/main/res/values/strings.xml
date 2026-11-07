@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FireRun</string>
+    <string name="a11y_label">FireRun – Tasto Home</string>
+    <string name="a11y_desc">Quando si apre la home di Amazon, FireRun la sostituisce con la propria schermata senza pubblicità. Non legge il contenuto dello schermo.</string>
+</resources>

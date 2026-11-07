@@ -1,0 +1,64 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Su GitHub Actions il numero di build diventa la versione: così l'app e lo
+// script di deploy capiscono quando c'è un aggiornamento.
+def runNumber = System.getenv('GITHUB_RUN_NUMBER') ?: '1'
+def githubRepo = System.getenv('GITHUB_REPOSITORY') ?: 'Kyo89-sudo/FireRun'
+
+android {
+    namespace 'com.kyo89.firerun'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.kyo89.firerun'
+        minSdk 25
+        targetSdk 34
+        versionCode runNumber.toInteger()
+        versionName "1.0.${runNumber}"
+        buildConfigField 'String', 'GITHUB_REPO', "\"${githubRepo}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    // La chiave di firma NON è nel repository: su GitHub Actions arriva dai Secrets
+    // (KEYSTORE_BASE64 e KEYSTORE_PASSWORD), in locale dalle variabili d'ambiente
+    // FIRERUN_KEYSTORE e FIRERUN_KEYSTORE_PASSWORD. Sempre la stessa chiave =
+    // ogni build si installa sopra la precedente.
+    def ksPath = System.getenv('FIRERUN_KEYSTORE')
+    def ksPass = System.getenv('FIRERUN_KEYSTORE_PASSWORD')
+    def hasKey = ksPath && ksPass && file(ksPath).exists()
+
+    signingConfigs {
+        if (hasKey) {
+            fire {
+                storeFile file(ksPath)
+                storePassword ksPass
+                keyAlias 'firerun'
+                keyPassword ksPass
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Senza chiave la build release resta non firmata (non installabile):
+            // per provare in locale usa assembleDebug.
+            if (hasKey) signingConfig signingConfigs.fire
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
