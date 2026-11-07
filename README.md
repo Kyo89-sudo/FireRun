@@ -1,105 +1,132 @@
-# FireRun
+<p align="center">
+  <img src="docs/banner.svg" alt="FireRun – il launcher senza pubblicità per Fire TV, in stile Apple TV" width="100%">
+</p>
 
-Launcher per Fire TV Stick 4K Max (e qualsiasi Android TV) in stile **Apple TV**.
-Nessuna pubblicità, nessun contenuto sponsorizzato.
+<p align="center">
+  <a href="https://github.com/Kyo89-sudo/FireRun/releases/latest"><img alt="Ultima versione" src="https://img.shields.io/github/v/release/Kyo89-sudo/FireRun?label=versione&color=C2410C"></a>
+  <a href="https://github.com/Kyo89-sudo/FireRun/actions/workflows/build.yml"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/Kyo89-sudo/FireRun/build.yml?branch=main&label=build"></a>
+  <img alt="Fire OS 7 e 8" src="https://img.shields.io/badge/Fire%20OS-7%20%C2%B7%208-1F5F8A">
+  <img alt="Root non necessario" src="https://img.shields.io/badge/root-non%20necessario-2E7D4F">
+</p>
 
-- **Top Shelf**: la metà alta mostra l'app selezionata, con nome grande e lo sfondo
-  che prende il colore del suo banner
-- **Griglia a 5 colonne** di banner 5:3: il riquadro selezionato si solleva con ombra e
-  riflesso e mostra il nome sotto
-- Prima i **preferiti** (con il riquadro **Aggiungi** per sceglierli), poi **Tutte le app**
-- In alto a destra: **Cerca**, **Impostazioni** del Fire Stick, **Opzioni FireRun** (la fiamma), orologio
-- Tieni premuto OK (o tasto ≡) su un'app: apri, aggiungi/togli dai preferiti, sposta, nascondi, info, disinstalla
-- Sfondo: colore dell'app (come Apple TV), Sequoia, Notte, Prugna, Grafite oppure **una tua immagine dal PC**:
-  `deploy.ps1 -FireStick <IP> -Sfondo "C:\percorso\immagine.jpg"`
-- Servizio **Tasto Home**: quando Fire OS apre la home Amazon, torna subito su FireRun
-- **Si aggiorna da solo** dalle release di GitHub
+**FireRun** sostituisce la home del Fire TV Stick con una schermata pulita in stile Apple TV:
+solo le tue app, nessuna pubblicità, nessun contenuto sponsorizzato, nessun autoplay.
+Funziona senza root ed è pensato per il **Fire TV Stick 4K Max**, ma va su qualsiasi Fire TV
+e Android TV.
 
-## Come funziona il giro completo
+<p align="center">
+  <img src="docs/preview.svg" alt="Anteprima della home di FireRun" width="100%">
+</p>
 
-```
-push su GitHub ──► GitHub Actions compila ──► Release "v1.0.N" con FireRun.apk + version.json
-                                                     │
-              ┌──────────────────────────────────────┴───────────────────────────┐
-              ▼                                                                  ▼
-  FireRun sul Fire Stick controlla ogni 2 ore,                 tools\deploy.ps1 sul PC installa
-  mostra «Aggiornamento» e si installa (1 conferma sul TV)     via ADB in rete, senza conferme
-```
+## Funzioni
 
-## 1. Primo caricamento su GitHub
+| | |
+|---|---|
+| **Top Shelf** | La metà alta mostra l'app selezionata in grande; lo sfondo prende il colore del suo banner. |
+| **Griglia stile Apple TV** | Banner 5:3 su 5 colonne. Il riquadro selezionato si solleva con ombra e riflesso e mostra il nome. |
+| **Preferiti** | In prima riga le tue app, scelte con il riquadro **Aggiungi** e riordinabili. Sotto, **Tutte le app**. |
+| **Menu dell'app** | Tieni premuto OK (o tasto ≡): apri, preferiti, sposta, nascondi, info, disinstalla. |
+| **Cerca** | Trova un'app scrivendo il nome. |
+| **Sfondi** | Colore dell'app, Sequoia, Notte, Prugna, Grafite oppure **una tua immagine** inviata dal PC. |
+| **Tasto Home** | Premendo Home torni a FireRun e non alla home Amazon, che non si vede nemmeno per un istante. |
+| **Accensione e standby** | All'avvio e al risveglio compare FireRun. |
+| **Aggiornamenti** | Si aggiorna da solo dalle release di GitHub. |
 
-1. Crea il repository **FireRun** su GitHub (pubblico: i link di download delle release devono
-   essere raggiungibili dal Fire Stick senza login).
-2. Aggiungi la chiave di firma come **Secrets** (Settings → Secrets and variables → Actions →
-   New repository secret):
-   - `KEYSTORE_BASE64`: il contenuto del file `KEYSTORE_BASE64.txt`
-   - `KEYSTORE_PASSWORD`: il contenuto del file `KEYSTORE_PASSWORD.txt`
+## Compatibilità
 
-   La chiave **non va mai nel repository**: chi la possiede può firmare aggiornamenti
-   che il Fire Stick accetterebbe come FireRun. Conserva una copia di `firerun-release.jks`
-   e della password: se la perdi, per installare le build nuove dovrai disinstallare FireRun.
-3. Dalla scheda **Actions** avvia **Build FireRun** (o fai un push). In circa 4 minuti
-   pubblica la release `v1.0.N`.
+| Dispositivo | Stato |
+|---|---|
+| Fire TV Stick 4K Max (2ª gen., Fire OS 8) | ✅ provato |
+| Altri Fire TV con Fire OS 7 o 8 | ✅ dovrebbe funzionare |
+| Android TV / Google TV | ✅ come launcher normale (Opzioni → Launcher predefinito) |
+| Modelli con Vega OS (es. Fire TV Stick 4K Select) | ❌ non installano APK |
 
-Se il repo ha un altro nome, l'app lo prende in automatico dalla build; nello script usa `-Repo utente/nome`.
+## Installazione
 
-## 2. Preparare il Fire Stick (una volta sola)
+### 1. Prepara il Fire Stick (una volta sola)
 
-1. Impostazioni → La mia Fire TV → Informazioni → premi 7 volte sul nome del dispositivo
-   per far comparire **Opzioni sviluppatore**.
-2. Opzioni sviluppatore → attiva **Debug ADB**.
-3. Annota l'indirizzo IP: Impostazioni → La mia Fire TV → Informazioni → Rete.
+1. **Impostazioni → La mia Fire TV → Informazioni**: premi 7 volte sul nome del dispositivo
+   finché compaiono le **Opzioni sviluppatore**.
+2. **Opzioni sviluppatore → Debug ADB**: attivalo.
+3. Annota l'**indirizzo IP**: Impostazioni → La mia Fire TV → Informazioni → Rete.
 
-## 3. Installare da remoto dal PC
+### 2a. Dal PC (consigliato)
 
-Nella cartella `tools`:
+Scarica [`tools/deploy.ps1`](tools/deploy.ps1) e, nella stessa cartella, in PowerShell:
 
-- doppio clic su **deploy.cmd** e scrivi l'IP, oppure
-- da PowerShell: `.\deploy.ps1 -FireStick 192.168.1.50 -AttivaTastoHome`
-
-La prima volta sul TV compare «Consenti debug USB?»: scegli **Consenti sempre da questo computer**.
-Lo script scarica da solo `adb` (platform-tools ufficiali Google) se non l'hai, installa l'ultima
-versione e attiva il servizio Tasto Home.
-
-### Aggiornamento automatico dal PC
-
-Per far installare ogni nuova build senza far nulla, programma lo script ogni ora:
-
-```
-schtasks /create /tn "FireRun deploy" /sc hourly /tr "powershell -NoProfile -ExecutionPolicy Bypass -File C:\percorso\FireRun\tools\deploy.ps1 -FireStick 192.168.1.50"
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy.ps1 -FireStick 192.168.1.50 -AttivaTastoHome
 ```
 
-Lo script installa solo se su GitHub c'è una versione più nuova di quella sul Fire Stick.
-Conviene dare al Fire Stick un IP fisso dal router.
+La prima volta sul TV compare **«Consentire debug USB?»**: scegli *Consenti sempre da questo computer*.
+Lo script scarica `adb` dal sito ufficiale Google se manca, installa l'ultima versione e attiva il Tasto Home.
+In alternativa fai doppio clic su [`tools/deploy.cmd`](tools/deploy.cmd).
 
-## 4. Aggiornamento dal Fire Stick stesso
+### 2b. Dal Fire Stick, con Downloader
 
-FireRun controlla le release ogni 2 ore. Se c'è una versione nuova la scarica e apre subito la richiesta di installazione (disattivabile in Opzioni → Aggiornamenti automatici); compare anche il pulsante arancione
-**Aggiornamento** in alto (oppure Opzioni → Aggiorna FireRun). La prima volta Fire OS chiede di
-consentire a FireRun di installare app; poi a ogni aggiornamento basta confermare **Installa**.
+Installa **Downloader** dall'Appstore, consentigli di installare app (Opzioni sviluppatore →
+Installa app sconosciute) e apri:
 
-## Tasto Home e home Amazon
+```
+https://github.com/Kyo89-sudo/FireRun/releases/latest/download/FireRun.apk
+```
 
-- Il servizio di accessibilità vede quando compare la home Amazon (`HomeActivity_vNext`) e la
-  sostituisce con FireRun, coprendola con un velo così non si vede. Le Impostazioni e le altre
-  schermate Amazon restano aperte. Attivalo con `deploy.ps1 -AttivaTastoHome`: imposta anche
-  `min_futurity=0`, che rende istantaneo il ritorno a FireRun dopo il tasto Home.
-- **Opzioni → Diagnostica finestre Amazon** mostra quali schermate Amazon sono state viste e sostituite.
-- **Opzioni → Apri la home Amazon** se ti serve qualcosa di Amazon: resta aperta finché non apri un'altra app.
-- Facoltativo: `deploy.ps1 -DisattivaHomeAmazon` prova a disattivare la home Amazon
-  (su molte versioni di Fire OS non è permesso). Se riesce, FireRun diventa l'unica home.
-  Si annulla con `-RiattivaHomeAmazon`; nel caso peggiore c'è il ripristino di fabbrica
-  (Indietro + destra sul telecomando per 10 secondi).
+Per il Tasto Home attiva poi **FireRun – Tasto Home** in Impostazioni → Accessibilità, o usa lo
+script dal PC: è l'unico modo per avere anche il ritorno istantaneo.
 
-## Note
+## Lo script `deploy.ps1`
 
-- Fire OS non sfoca gli sfondi come macOS: i pannelli in vetro sono semi-trasparenti.
-- Non funziona sui modelli con Vega OS (es. Fire TV Stick 4K Select), che non installano APK.
-- La chiave di firma sta solo nei Secrets di GitHub, così ogni build si installa sopra la precedente.
-- Per compilare in locale serve Android Studio (apri la cartella come progetto).
+| Opzione | Cosa fa |
+|---|---|
+| `-FireStick <IP>` | Si collega e installa l'ultima versione, solo se più nuova di quella presente. |
+| `-AttivaTastoHome` | Attiva il servizio Tasto Home, il ritorno istantaneo (`min_futurity=0`) e l'avvio all'accensione. |
+| `-Sfondo "C:\…\foto.jpg"` | Invia un'immagine JPG, PNG o WEBP e la imposta come sfondo. |
+| `-Force` | Reinstalla anche se la versione è la stessa. |
+| `-DisattivaHomeAmazon` / `-RiattivaHomeAmazon` | Prova a disattivare la home Amazon. Sconsigliato: su Fire OS 8 contiene anche le Impostazioni. |
+| `-Repo utente/nome` | Usa un altro repository per le release. |
+
+Per installare in automatico ogni nuova versione, programma lo script ogni ora:
+
+```
+schtasks /create /tn "FireRun deploy" /sc hourly /tr "powershell -NoProfile -ExecutionPolicy Bypass -File C:\percorso\deploy.ps1 -FireStick 192.168.1.50"
+```
+
+## Aggiornamenti
+
+- **Dal Fire Stick:** FireRun controlla le release ogni 2 ore, scarica la nuova versione e chiede
+  di confermare **Installa** (Android non consente aggiornamenti silenziosi alle app normali).
+  Si disattiva in Opzioni → Aggiornamenti automatici.
+- **Dal PC:** `deploy.ps1` installa via ADB senza nessuna conferma sul TV.
+
+## Come funziona il Tasto Home
+
+Fire OS lega il tasto Home al launcher Amazon e non permette di cambiarlo. FireRun usa un servizio
+di accessibilità che vede **solo quale schermata è aperta**, non il suo contenuto:
+
+- quando compare la home Amazon (`HomeActivity_vNext`) la copre con un velo e apre FireRun;
+- Impostazioni e altre schermate Amazon restano aperte normalmente;
+- dopo Home Android ritarda l'apertura delle app di qualche secondo: FireRun la fa partire da un
+  allarme di sistema, istantaneo grazie a `min_futurity=0` impostato dallo script;
+- al risveglio dallo standby torna FireRun solo se eri sulla home Amazon.
+
+Dalle **Opzioni** (la fiamma in alto a destra) puoi aprire la home Amazon quando ti serve,
+disattivare la sostituzione e vedere la diagnostica delle schermate.
+
+## Sviluppo
+
+Il progetto è Java puro con le API di Android, senza librerie esterne.
+
+- **Build:** ogni push su `main` avvia [GitHub Actions](.github/workflows/build.yml), che compila e
+  pubblica la release `v1.0.N` con `FireRun.apk` e `version.json`.
+- **Firma:** la chiave **non è nel repository**. Va nei *Secrets* del repo (`KEYSTORE_BASE64`,
+  `KEYSTORE_PASSWORD`); senza, la build si ferma.
+- **In locale:** apri la cartella con Android Studio; per una release firmata imposta
+  `FIRERUN_KEYSTORE` e `FIRERUN_KEYSTORE_PASSWORD`.
 
 ## Crediti
 
-Il sistema del Tasto Home (riconoscimento esatto della home Amazon, velo, avvio istantaneo
-dopo Home) è ripreso da [dumbtv](https://github.com/humblemuzzu/dumbtv), licenza MIT.
-Dettagli in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Il sistema del Tasto Home (riconoscimento esatto della home Amazon, velo, avvio istantaneo,
+apertura delle vere Impostazioni) è ripreso da [dumbtv](https://github.com/humblemuzzu/dumbtv),
+licenza MIT. Dettagli in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+FireRun non è affiliato ad Amazon né ad Apple. Fire TV è un marchio di Amazon.

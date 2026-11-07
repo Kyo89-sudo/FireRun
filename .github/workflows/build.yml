@@ -3,6 +3,12 @@ name: Build FireRun
 on:
   push:
     branches: [main]
+    # Documentazione, immagini e script del PC non cambiano l'app: niente nuova versione
+    paths-ignore:
+      - 'README.md'
+      - 'THIRD_PARTY_NOTICES.md'
+      - 'docs/**'
+      - 'tools/**'
   workflow_dispatch:
 
 permissions:
