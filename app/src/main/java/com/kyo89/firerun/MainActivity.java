@@ -62,6 +62,8 @@ public class MainActivity extends Activity {
     private static final int DEFAULT_DOCK_SIZE = 6;
     private static final int DOCK_ICON = 66;   // dp: lato dell'icona nella barra
     private static final int DOCK_GAP = 14;    // dp: spazio tra le icone
+    // Ingrandimento dell'icona selezionata: piccolo e senza sollevarla, così resta dentro la barra.
+    private static final float DOCK_FOCUS_SCALE = 1.08f;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();   // lettura app
@@ -403,7 +405,7 @@ public class MainActivity extends Activity {
         box.setBackground(Ui.glass(this, 22));
         box.setClipChildren(false);
         box.setClipToPadding(false);
-        box.setPadding(0, dp(4), dp(18), dp(4));
+        box.setPadding(0, dp(6), dp(18), dp(6));
 
         // Le app scorrono ritagliate SOLO ai lati (niente icone fuori dalla barra a destra
         // o a sinistra); sopra e sotto c'è spazio libero, così l'icona selezionata,
@@ -412,7 +414,7 @@ public class MainActivity extends Activity {
         hs.setHorizontalScrollBarEnabled(false);
         hs.setClipChildren(false);
         hs.setClipToPadding(false);
-        hs.setPadding(dp(18), dp(10), dp(10), dp(4));
+        hs.setPadding(dp(18), dp(14), dp(10), dp(10));
         final int spare = dp(48);
         hs.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
                 v.setClipBounds(new android.graphics.Rect(0, -spare, r - l, (b - t) + spare)));
@@ -426,13 +428,13 @@ public class MainActivity extends Activity {
         View sep = new View(this);
         sep.setBackgroundColor(0x38FFFFFF);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(Math.max(1, dp(1)), dp(48));
-        slp.setMargins(dp(6), dp(19), dp(16), 0);
+        slp.setMargins(dp(6), dp(14 + DOCK_ICON / 2 - 24), dp(16), 0);
         box.addView(sep, slp);
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setClipChildren(false);
-        actions.setPadding(0, dp(10), 0, dp(4));
+        actions.setPadding(0, dp(14), 0, dp(10));
         dockPlus = dockAction(R.drawable.ic_plus, "Aggiungi", true, v -> showAddApps());
         actions.addView(dockPlus, marginEnd(DOCK_GAP));
         actions.addView(dockAction(R.drawable.ic_grid, "Tutte le app", false, v -> scrollToAll()), marginEnd(0));
@@ -576,7 +578,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams llp = labelParams();
         item.addView(label, llp);
 
-        bindApp(icon, app, SEC_DOCK, 1.12f, 18, label);
+        bindApp(icon, app, SEC_DOCK, DOCK_FOCUS_SCALE, 18, label);
         return item;
     }
 
@@ -616,8 +618,7 @@ public class MainActivity extends Activity {
 
         final GradientDrawable ring = Ui.ring(this, 18);
         box.setOnFocusChangeListener((v, has) -> {
-            Ui.focusScale(v, has, 1.12f);
-            v.animate().translationY(has ? -dp(4) : 0).setDuration(140).start();
+            Ui.focusScale(v, has, DOCK_FOCUS_SCALE);
             box.setForeground(has ? ring : null);
             label.animate().alpha(has ? 1f : 0f).setDuration(140).start();
         });
@@ -686,7 +687,6 @@ public class MainActivity extends Activity {
         v.setOnFocusChangeListener((view, has) -> {
             Ui.focusScale(view, has, scale);
             if (label != null) {
-                view.animate().translationY(has ? -dp(4) : 0).setDuration(140).start();
                 label.animate().alpha(has ? 1f : 0f).setDuration(140).start();
             }
             v.setForeground(has ? ring : null);
