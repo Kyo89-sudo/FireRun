@@ -1,15 +1,16 @@
 # FireRun
 
-Launcher per Fire TV Stick 4K Max (e qualsiasi Android TV) in stile Fire TV, modernizzato con
-l'aspetto vetro di macOS Sequoia. Nessuna pubblicità, nessun contenuto sponsorizzato.
+Launcher per Fire TV Stick 4K Max (e qualsiasi Android TV) in stile **Apple TV**.
+Nessuna pubblicità, nessun contenuto sponsorizzato.
 
-- Barra in alto: Home, Cerca, App, Impostazioni (del Fire Stick), orologio
-- **Opzioni di FireRun**: OK sul logo FireRun in alto a sinistra (oppure OK tenuto premuto su Impostazioni)
-- Area grande con l'app selezionata e i pulsanti Apri / Opzioni
-- Barra delle app in vetro con pulsante **+** per aggiungere o togliere app
-- Recenti e Tutte le app (con i banner TV delle app)
-- Tieni premuto OK (o tasto ≡) su un'app: apri, aggiungi/togli dalla barra, sposta, nascondi, info, disinstalla
-- 4 sfondi a onde (Sequoia, Notte, Prugna, Grafite)
+- **Top Shelf**: la metà alta mostra l'app selezionata, con nome grande e lo sfondo
+  che prende il colore del suo banner
+- **Griglia a 5 colonne** di banner 5:3: il riquadro selezionato si solleva con ombra e
+  riflesso e mostra il nome sotto
+- Prima i **preferiti** (con il riquadro **Aggiungi** per sceglierli), poi **Tutte le app**
+- In alto a destra: **Cerca**, **Impostazioni** del Fire Stick, **Opzioni FireRun** (la fiamma), orologio
+- Tieni premuto OK (o tasto ≡) su un'app: apri, aggiungi/togli dai preferiti, sposta, nascondi, info, disinstalla
+- Sfondo: colore dell'app (come Apple TV) oppure Sequoia, Notte, Prugna, Grafite
 - Servizio **Tasto Home**: quando Fire OS apre la home Amazon, torna subito su FireRun
 - **Si aggiorna da solo** dalle release di GitHub
 

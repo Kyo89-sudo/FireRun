@@ -74,7 +74,7 @@ final class Ui {
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         t.setTextColor(color);
         t.setTypeface(bold ? BOLD : REGULAR);
-        t.setIncludeFontPadding(false);
+        // Lasciamo lo spazio interno del font: senza, accenti e lettere come g/p si tagliano.
         return t;
     }
 

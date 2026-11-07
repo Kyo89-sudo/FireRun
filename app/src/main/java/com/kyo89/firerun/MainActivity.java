@@ -7,8 +7,14 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -24,12 +30,12 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
+import android.view.ViewTreeObserver;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.GridLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -37,7 +43,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.text.Normalizer;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -49,42 +54,42 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Home di FireRun: barra in alto, area "hero" dell'app selezionata, barra delle
- * app in vetro con il pulsante +, Recenti e Tutte le app. Nessuna pubblicità.
+ * Home di FireRun in stile Apple TV: in alto il "Top Shelf" dell'app selezionata
+ * (nome grande, sfondo del suo colore), sotto la griglia a 5 colonne con prima i
+ * preferiti (e il riquadro Aggiungi), poi Tutte le app. Nessuna pubblicità.
  */
 public class MainActivity extends Activity {
 
-    private static final String SEC_DOCK = "dock:";
-    private static final String SEC_REC = "rec:";
+    private static final String SEC_FAV = "fav:";
     private static final String SEC_ALL = "all:";
     private static final long UPDATE_EVERY_MS = 2L * 60 * 60 * 1000;   // controllo ogni 2 ore
     private static final long REPROMPT_MS = 24L * 60 * 60 * 1000;      // se annulli, riprova dopo 24 h
-    private static final int DEFAULT_DOCK_SIZE = 6;
-    private static final int DOCK_ICON = 66;   // dp: lato dell'icona nella barra
-    private static final int DOCK_GAP = 14;    // dp: spazio tra le icone
-    // Ingrandimento dell'icona selezionata: piccolo e senza sollevarla, così resta dentro la barra.
-    private static final float DOCK_FOCUS_SCALE = 1.08f;
+    private static final int DEFAULT_FAVS = 5;
+    private static final int COLUMNS = 5;
+    private static final float FOCUS_SCALE = 1.12f;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();   // lettura app
     private final ExecutorService net = Executors.newSingleThreadExecutor();  // rete (aggiornamenti)
     private final Map<String, AppEntry> tagApps = new HashMap<>();
+    private final Map<String, Integer> colorCache = new HashMap<>();
 
     private Prefs prefs;
     private List<AppEntry> apps = new ArrayList<>();
     private Map<String, AppEntry> byKey = new HashMap<>();
 
-    private WallpaperView wallpaper;
+    private ShelfView shelf;
     private ScrollView scroll;
-    private LinearLayout dockRow, recentRow, recentBlock;
-    private GridLayout grid;
-    private TextView allHeader, heroOver, heroTitle, heroMeta, clock, dateView;
+    private LinearLayout col;
+    private GridLayout favGrid, allGrid;
+    private TextView allHeader, heroOver, heroTitle, heroMeta, clock;
     private TextView updatePill;
-    private View firstDockView, firstAllView, dockPlus;
+    private View firstFavView, firstAllView;
 
     private AppEntry heroApp;
     private String focusTag;
-    private int loadGen, tileW, tileH, columns;
+    private String lastSignature;   // per non ricostruire la griglia se non è cambiato nulla
+    private int loadGen, tileW, tileH, gap, margin, heroH, screenH;
     private boolean receiverOn;
 
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
@@ -195,257 +200,194 @@ public class MainActivity extends Activity {
         return super.onKeyDown(keyCode, event);
     }
 
-    // ================================================================ struttura
+    // ================================================================ misure
 
     private int dp(float v) {
         return Ui.dp(this, v);
     }
 
+    /**
+     * Proporzioni prese da Apple TV su 1280×720 (margini 93, spazi 36, riquadri 5:3),
+     * riportate sullo schermo reale: 5 colonne che entrano esattamente.
+     */
     private void computeSizes() {
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        int screenW = Math.max(dm.widthPixels, dm.heightPixels);
-        int avail = screenW - 2 * dp(36) - dp(8);
-        columns = Math.max(3, avail / dp(178));
-        tileW = avail / columns - dp(16);
-        tileH = tileW * 9 / 16;
+        int w = Math.max(dm.widthPixels, dm.heightPixels);
+        screenH = Math.min(dm.widthPixels, dm.heightPixels);
+        margin = Math.round(w * 0.072f);
+        gap = Math.round(w * 0.028f);
+        tileW = (w - 2 * margin - (COLUMNS - 1) * gap) / COLUMNS;
+        tileH = tileW * 3 / 5;
     }
+
+    // ================================================================ struttura
 
     private void buildShell() {
         FrameLayout root = new FrameLayout(this);
-        wallpaper = new WallpaperView(this);
-        wallpaper.setTheme(prefs.theme());
-        root.addView(wallpaper, new FrameLayout.LayoutParams(
+        shelf = new ShelfView(this);
+        shelf.setTheme(prefs.theme());
+        root.addView(shelf, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        scroll = new ScrollView(this);
+        // Lo scorrimento lo decidiamo noi (ensureVisible): quello automatico di Android
+        // lascia le icone ingrandite a filo del bordo e non riporta su il Top Shelf.
+        scroll = new ScrollView(this) {
+            @Override
+            protected int computeScrollDeltaToGetChildRectOnScreen(Rect rect) {
+                return 0;
+            }
+        };
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setClipToPadding(false);
         scroll.setFillViewport(true);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
-        LinearLayout col = new LinearLayout(this);
+        // Le griglie usano mezzo spazio per lato in ogni cella: il bordo esterno
+        // risulta esattamente "margin".
+        col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setClipChildren(false);
         col.setClipToPadding(false);
-        col.setPadding(dp(36), dp(20), dp(36), dp(48));
+        col.setPadding(margin - gap / 2, dp(18), margin - gap / 2, dp(64));
         scroll.addView(col, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        col.addView(buildHeader());
-        LinearLayout.LayoutParams heroLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(196));
-        heroLp.topMargin = dp(24);
-        col.addView(buildHero(), heroLp);
-        LinearLayout.LayoutParams dockLp = new LinearLayout.LayoutParams(
+        col.addView(buildHeader(), insetParams(ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // La prima riga di app parte a circa il 60 % dello schermo, come su Apple TV.
+        heroH = Math.max(dp(150), Math.round(screenH * 0.60f) - dp(18) - dp(42) - dp(16));
+        col.addView(buildHero(), insetParams(heroH));
+
+        favGrid = newGrid();
+        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        dockLp.topMargin = dp(10);
-        col.addView(buildDock(), dockLp);
+        flp.topMargin = dp(16);
+        col.addView(favGrid, flp);
 
-        recentBlock = new LinearLayout(this);
-        recentBlock.setOrientation(LinearLayout.VERTICAL);
-        recentBlock.setClipChildren(false);
-        recentBlock.addView(sectionHeader("Recenti"));
-        HorizontalScrollView hs = new HorizontalScrollView(this);
-        hs.setHorizontalScrollBarEnabled(false);
-        hs.setClipChildren(false);
-        hs.setClipToPadding(false);
-        recentRow = new LinearLayout(this);
-        recentRow.setOrientation(LinearLayout.HORIZONTAL);
-        recentRow.setClipChildren(false);
-        recentRow.setPadding(dp(2), dp(10), dp(24), dp(10));
-        hs.addView(recentRow);
-        recentBlock.addView(hs);
-        col.addView(recentBlock);
+        allHeader = Ui.text(this, "Tutte le app", 20, true, Ui.WHITE);
+        LinearLayout.LayoutParams hlp = insetParams(ViewGroup.LayoutParams.WRAP_CONTENT);
+        hlp.topMargin = dp(18);
+        hlp.bottomMargin = dp(14);
+        col.addView(allHeader, hlp);
 
-        allHeader = sectionHeader("Tutte le app");
-        col.addView(allHeader);
-        grid = new GridLayout(this);
-        grid.setColumnCount(columns);
-        grid.setUseDefaultMargins(false);
-        grid.setClipChildren(false);
-        grid.setClipToPadding(false);
-        grid.setPadding(0, dp(6), 0, 0);
-        col.addView(grid);
+        allGrid = newGrid();
+        col.addView(allGrid);
+
+        scroll.getViewTreeObserver().addOnScrollChangedListener(() ->
+                shelf.setReveal(1f - scroll.getScrollY() / (float) Math.max(1, heroH)));
 
         setContentView(root);
         updateClock();
     }
 
+    /** Parametri per gli elementi allineati al margine (non alle celle della griglia). */
+    private LinearLayout.LayoutParams insetParams(int height) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height);
+        lp.leftMargin = gap / 2;
+        lp.rightMargin = gap / 2;
+        return lp;
+    }
+
+    private GridLayout newGrid() {
+        GridLayout g = new GridLayout(this);
+        g.setColumnCount(COLUMNS);
+        g.setUseDefaultMargins(false);
+        g.setClipChildren(false);
+        g.setClipToPadding(false);
+        return g;
+    }
+
     private View buildHeader() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-
-        // Logo + nome: pulsante che apre le Opzioni di FireRun (come il menu Apple su macOS).
-        LinearLayout brandBtn = new LinearLayout(this);
-        brandBtn.setOrientation(LinearLayout.HORIZONTAL);
-        brandBtn.setGravity(Gravity.CENTER_VERTICAL);
-        brandBtn.setPadding(dp(6), dp(5), dp(12), dp(5));
-        brandBtn.setFocusable(true);
-        brandBtn.setClickable(true);
-        brandBtn.setContentDescription("Opzioni FireRun");
-        GradientDrawable brandFocus = Ui.round(this, 999, 0x33FFFFFF);
-        brandFocus.setStroke(dp(2), Ui.WHITE);
-        android.graphics.drawable.StateListDrawable brandBg = new android.graphics.drawable.StateListDrawable();
-        brandBg.addState(new int[]{android.R.attr.state_focused}, brandFocus);
-        brandBg.addState(new int[]{android.R.attr.state_pressed}, brandFocus);
-        brandBg.addState(new int[]{}, Ui.round(this, 999, Color.TRANSPARENT));
-        brandBtn.setBackground(brandBg);
-        ImageView logo = new ImageView(this);
-        logo.setImageResource(R.drawable.ic_launcher);
-        brandBtn.addView(logo, new LinearLayout.LayoutParams(dp(26), dp(26)));
-        TextView brand = Ui.text(this, "FireRun", 17, true, Ui.WHITE);
-        LinearLayout.LayoutParams blp = wrap();
-        blp.leftMargin = dp(8);
-        brandBtn.addView(brand, blp);
-        brandBtn.setOnClickListener(v -> showOptions(0));
-        brandBtn.setOnFocusChangeListener((v, has) -> {
-            float sc = has ? 1.06f : 1f;
-            v.animate().scaleX(sc).scaleY(sc).setDuration(120).start();
-        });
-        LinearLayout.LayoutParams bblp = wrap();
-        bblp.leftMargin = -dp(6);
-        bar.addView(brandBtn, bblp);
-
-        LinearLayout nav = new LinearLayout(this);
-        nav.setOrientation(LinearLayout.HORIZONTAL);
-        nav.setBackground(Ui.glass(this, 999));
-        nav.setPadding(dp(4), dp(4), dp(4), dp(4));
-        nav.addView(navPill("Home", R.drawable.ic_home, v -> goTop()));
-        nav.addView(navPill("Cerca", R.drawable.ic_search, v -> showSearch()));
-        nav.addView(navPill("App", R.drawable.ic_apps, v -> scrollToAll()));
-        TextView sysSettings = navPill("Impostazioni", R.drawable.ic_settings, v -> openSystemSettings());
-        // OK tenuto premuto su Impostazioni → Opzioni di FireRun
-        sysSettings.setOnLongClickListener(v -> {
-            showOptions(0);
-            return true;
-        });
-        nav.addView(sysSettings);
-        LinearLayout.LayoutParams nlp = wrap();
-        nlp.leftMargin = dp(16);
-        bar.addView(nav, nlp);
-
-        bar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        bar.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        bar.setMinimumHeight(dp(42));
+        bar.setClipChildren(false);
 
         updatePill = Ui.pill(this, "Aggiornamento", R.drawable.ic_download, Ui.ACCENT, false);
         updatePill.setVisibility(View.GONE);
         updatePill.setOnClickListener(v -> Updater.downloadAndInstall(this, net, ui));
         LinearLayout.LayoutParams ulp = wrap();
-        ulp.rightMargin = dp(16);
+        ulp.rightMargin = dp(14);
         bar.addView(updatePill, ulp);
 
-        LinearLayout clockBox = new LinearLayout(this);
-        clockBox.setOrientation(LinearLayout.VERTICAL);
-        clockBox.setGravity(Gravity.END);
+        bar.addView(roundButton(R.drawable.ic_search, "Cerca", 0x24FFFFFF, v -> showSearch()), roundParams());
+        View settings = roundButton(R.drawable.ic_settings, "Impostazioni del Fire Stick", 0x24FFFFFF,
+                v -> openSystemSettings());
+        settings.setOnLongClickListener(v -> {
+            showOptions(0);
+            return true;
+        });
+        bar.addView(settings, roundParams());
+        bar.addView(roundButton(R.drawable.ic_flame, "Opzioni FireRun", Ui.ACCENT, v -> showOptions(0)), roundParams());
+
         clock = Ui.text(this, "", 20, true, Ui.WHITE);
-        dateView = Ui.text(this, "", 11, false, Ui.TEXT_DIM);
-        dateView.setPadding(0, dp(3), 0, 0);
-        clockBox.addView(clock);
-        clockBox.addView(dateView);
-        bar.addView(clockBox);
+        LinearLayout.LayoutParams clp = wrap();
+        clp.leftMargin = dp(10);
+        bar.addView(clock, clp);
         return bar;
     }
 
-    private TextView navPill(String label, int icon, View.OnClickListener click) {
-        TextView t = Ui.pill(this, label, icon, Color.TRANSPARENT, false);
-        t.setOnClickListener(click);
-        LinearLayout.LayoutParams lp = wrap();
-        lp.rightMargin = dp(2);
-        t.setLayoutParams(lp);
-        return t;
+    private LinearLayout.LayoutParams roundParams() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(38), dp(38));
+        lp.rightMargin = dp(10);
+        return lp;
+    }
+
+    /** Pulsante rotondo in alto a destra: a riposo vetro (o arancio), selezionato bianco. */
+    private View roundButton(int icon, String description, int normalFill, View.OnClickListener click) {
+        FrameLayout b = new FrameLayout(this);
+        GradientDrawable normal = new GradientDrawable();
+        normal.setShape(GradientDrawable.OVAL);
+        normal.setColor(normalFill);
+        GradientDrawable focused = new GradientDrawable();
+        focused.setShape(GradientDrawable.OVAL);
+        focused.setColor(Ui.WHITE);
+        StateListDrawable bg = new StateListDrawable();
+        bg.addState(new int[]{android.R.attr.state_focused}, focused);
+        bg.addState(new int[]{android.R.attr.state_pressed}, focused);
+        bg.addState(new int[]{}, normal);
+        b.setBackground(bg);
+        b.setFocusable(true);
+        b.setClickable(true);
+        b.setContentDescription(description);
+        b.setOnClickListener(click);
+
+        ImageView iv = new ImageView(this);
+        iv.setImageResource(icon);
+        iv.setDuplicateParentStateEnabled(true);
+        iv.setImageTintList(new ColorStateList(
+                new int[][]{{android.R.attr.state_focused}, {android.R.attr.state_pressed}, {}},
+                new int[]{Ui.INK, Ui.INK, Ui.WHITE}));
+        b.addView(iv, new FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER));
+
+        b.setOnFocusChangeListener((v, has) -> {
+            float s = has ? 1.12f : 1f;
+            v.animate().scaleX(s).scaleY(s).setDuration(120).start();
+            if (has) scroll.smoothScrollTo(0, 0);
+        });
+        return b;
     }
 
     private View buildHero() {
         LinearLayout hero = new LinearLayout(this);
         hero.setOrientation(LinearLayout.VERTICAL);
         hero.setGravity(Gravity.BOTTOM);
-        hero.setPadding(dp(12), 0, 0, 0);
+        hero.setPadding(0, 0, 0, dp(6));
 
-        heroOver = Ui.text(this, "", 11, true, Ui.ACCENT_LIGHT);
-        heroOver.setLetterSpacing(0.14f);
+        heroOver = Ui.text(this, "", 11, true, 0xB8FFFFFF);
+        heroOver.setLetterSpacing(0.16f);
         heroTitle = Ui.oneLine(Ui.text(this, "FireRun", 46, true, Ui.WHITE));
-        heroTitle.setLetterSpacing(-0.02f);
-        heroTitle.setPadding(0, dp(6), 0, dp(4));
-        heroMeta = Ui.oneLine(Ui.text(this, "Caricamento app…", 14, false, Ui.TEXT_DIM));
-
-        LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.setClipChildren(false);
-        TextView open = Ui.pill(this, "Apri", R.drawable.ic_play, 0x24FFFFFF, true);
-        open.setOnClickListener(v -> {
-            if (heroApp != null) launch(heroApp);
-        });
-        TextView opts = Ui.pill(this, "Opzioni", 0, 0x24FFFFFF, true);
-        opts.setOnClickListener(v -> {
-            if (heroApp != null) showAppMenu(heroApp);
-        });
-        buttons.addView(open, wrap());
-        LinearLayout.LayoutParams olp = wrap();
-        olp.leftMargin = dp(10);
-        buttons.addView(opts, olp);
+        heroTitle.setLetterSpacing(-0.03f);
+        heroTitle.setPadding(0, dp(6), 0, dp(6));
+        heroMeta = Ui.oneLine(Ui.text(this, "Caricamento app…", 14, false, 0xC7FFFFFF));
 
         hero.addView(heroOver);
         hero.addView(heroTitle);
         hero.addView(heroMeta);
-        LinearLayout.LayoutParams blp = wrap();
-        blp.topMargin = dp(16);
-        hero.addView(buttons, blp);
         return hero;
-    }
-
-    /**
-     * Barra delle app: a sinistra le app (scorrono e restano DENTRO la barra),
-     * a destra «+» e «Tutte le app» fissi, sempre visibili.
-     */
-    private View buildDock() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.HORIZONTAL);
-        box.setGravity(Gravity.TOP);
-        box.setBackground(Ui.glass(this, 22));
-        box.setClipChildren(false);
-        box.setClipToPadding(false);
-        box.setPadding(0, dp(6), dp(18), dp(6));
-
-        // Le app scorrono ritagliate SOLO ai lati (niente icone fuori dalla barra a destra
-        // o a sinistra); sopra e sotto c'è spazio libero, così l'icona selezionata,
-        // ingrandita e sollevata, non viene tagliata.
-        final HorizontalScrollView hs = new HorizontalScrollView(this);
-        hs.setHorizontalScrollBarEnabled(false);
-        hs.setClipChildren(false);
-        hs.setClipToPadding(false);
-        hs.setPadding(dp(18), dp(14), dp(10), dp(10));
-        final int spare = dp(48);
-        hs.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
-                v.setClipBounds(new android.graphics.Rect(0, -spare, r - l, (b - t) + spare)));
-        dockRow = new LinearLayout(this);
-        dockRow.setOrientation(LinearLayout.HORIZONTAL);
-        dockRow.setGravity(Gravity.TOP);
-        dockRow.setClipChildren(false);
-        hs.addView(dockRow);
-        box.addView(hs, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        View sep = new View(this);
-        sep.setBackgroundColor(0x38FFFFFF);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(Math.max(1, dp(1)), dp(48));
-        slp.setMargins(dp(6), dp(14 + DOCK_ICON / 2 - 24), dp(16), 0);
-        box.addView(sep, slp);
-
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        actions.setClipChildren(false);
-        actions.setPadding(0, dp(14), 0, dp(10));
-        dockPlus = dockAction(R.drawable.ic_plus, "Aggiungi", true, v -> showAddApps());
-        actions.addView(dockPlus, marginEnd(DOCK_GAP));
-        actions.addView(dockAction(R.drawable.ic_grid, "Tutte le app", false, v -> scrollToAll()), marginEnd(0));
-        box.addView(actions, wrap());
-        return box;
-    }
-
-    private TextView sectionHeader(String s) {
-        TextView t = Ui.text(this, s, 16, true, Ui.WHITE);
-        t.setPadding(dp(2), dp(20), 0, dp(2));
-        return t;
     }
 
     private LinearLayout.LayoutParams wrap() {
@@ -463,6 +405,11 @@ public class MainActivity extends Activity {
                 final List<AppEntry> list = AppRepository.load(app);
                 ui.post(() -> {
                     if (gen != loadGen || isFinishing() || isDestroyed()) return;
+                    if (signature(list).equals(lastSignature)) {
+                        // Nulla di cambiato: niente ricostruzione (niente sfarfallio), solo il Top Shelf aggiornato.
+                        if (heroApp != null) showHero(heroApp, focusTag != null && focusTag.startsWith(SEC_ALL) ? SEC_ALL : SEC_FAV);
+                        return;
+                    }
                     apps = list;
                     rebuildAll();
                 });
@@ -471,179 +418,106 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Impronta di ciò che si vede in griglia: app installate (e nomi), preferiti, app nascoste. */
+    private String signature(List<AppEntry> list) {
+        StringBuilder b = new StringBuilder();
+        for (AppEntry a : list) b.append(a.key).append('=').append(a.label).append('|');
+        b.append("#").append(prefs.dock()).append("#").append(new java.util.TreeSet<>(prefs.hidden()));
+        return b.toString();
+    }
+
     private void rebuildAll() {
+        lastSignature = signature(apps);
         tagApps.clear();
+        colorCache.clear();
         byKey = new HashMap<>();
         for (AppEntry a : apps) byKey.put(a.key, a);
-        firstDockView = null;
+        firstFavView = null;
         firstAllView = null;
 
-        // Primo avvio: riempi la barra con alcune app TV.
+        // Primo avvio: alcune app TV come preferite.
         if (!prefs.hasDock() && !apps.isEmpty()) {
             List<String> start = new ArrayList<>();
-            for (AppEntry a : apps) if (a.leanback && start.size() < DEFAULT_DOCK_SIZE) start.add(a.key);
-            for (AppEntry a : apps) if (!start.contains(a.key) && start.size() < DEFAULT_DOCK_SIZE) start.add(a.key);
+            for (AppEntry a : apps) if (a.leanback && start.size() < DEFAULT_FAVS) start.add(a.key);
+            for (AppEntry a : apps) if (!start.contains(a.key) && start.size() < DEFAULT_FAVS) start.add(a.key);
             prefs.setDock(start);
         }
 
-        // --- barra delle app ---
-        dockRow.removeAllViews();
+        // --- preferiti + Aggiungi ---
+        favGrid.removeAllViews();
         List<String> keys = prefs.dock();
         List<String> cleaned = new ArrayList<>();
+        int i = 0;
         for (String k : keys) {
             AppEntry a = byKey.get(k);
             if (a == null) continue;
             cleaned.add(k);
-            View item = dockItem(a);
-            if (firstDockView == null) firstDockView = item.findViewWithTag(SEC_DOCK + a.key);
-            dockRow.addView(item, marginEnd(DOCK_GAP));
+            View cell = appCell(a, SEC_FAV, i < COLUMNS);
+            if (firstFavView == null) firstFavView = cell.findViewWithTag(SEC_FAV + a.key);
+            favGrid.addView(cell, cellParams());
+            i++;
         }
         if (cleaned.size() != keys.size() && !apps.isEmpty()) prefs.setDock(cleaned);
-
-        if (firstDockView == null) firstDockView = dockPlus.findViewWithTag("act:Aggiungi");
-
-        // --- recenti ---
-        recentRow.removeAllViews();
-        int shown = 0;
-        for (String k : prefs.recents()) {
-            AppEntry a = byKey.get(k);
-            if (a == null || shown >= 8) continue;
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(180), dp(101));
-            lp.rightMargin = dp(14);
-            recentRow.addView(card(a, SEC_REC, true), lp);
-            shown++;
-        }
-        recentBlock.setVisibility(shown > 0 ? View.VISIBLE : View.GONE);
+        View add = addCell(i < COLUMNS);
+        favGrid.addView(add, cellParams());
+        if (firstFavView == null) firstFavView = add.findViewWithTag("act:add");
 
         // --- tutte le app ---
-        grid.removeAllViews();
+        allGrid.removeAllViews();
         Set<String> hidden = prefs.hidden();
         int n = 0;
         for (AppEntry a : apps) {
             if (hidden.contains(a.key)) continue;
-            GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
-            lp.width = tileW;
-            lp.height = tileH;
-            lp.setMargins(dp(8), dp(8), dp(8), dp(8));
-            View tile = card(a, SEC_ALL, false);
-            if (firstAllView == null) firstAllView = tile;
-            grid.addView(tile, lp);
+            View cell = appCell(a, SEC_ALL, false);
+            if (firstAllView == null) firstAllView = cell.findViewWithTag(SEC_ALL + a.key);
+            allGrid.addView(cell, cellParams());
             n++;
         }
         allHeader.setText("Tutte le app (" + n + ")");
 
-        // Dopo ogni ricarica le AppEntry sono nuove: aggancia l'hero a quella aggiornata.
+        // Dopo ogni ricarica le AppEntry sono nuove: aggancia il Top Shelf a quella aggiornata.
         if (heroApp != null) heroApp = byKey.get(heroApp.key);
         if (heroApp == null) {
             List<String> d = prefs.dock();
             heroApp = !d.isEmpty() ? byKey.get(d.get(0)) : (apps.isEmpty() ? null : apps.get(0));
-            if (heroApp != null) showHero(heroApp, SEC_DOCK);
         }
-        restoreFocus();
-    }
+        if (heroApp != null) showHero(heroApp, SEC_FAV);
 
-    private LinearLayout.LayoutParams marginEnd(int dpEnd) {
-        LinearLayout.LayoutParams lp = wrap();
-        lp.rightMargin = dp(dpEnd);
-        return lp;
-    }
-
-    // ================================================================ elementi
-
-    /** Icona della barra: quadrato arrotondato con etichetta che compare quando è selezionata. */
-    private View dockItem(final AppEntry app) {
-        LinearLayout item = new LinearLayout(this);
-        item.setOrientation(LinearLayout.VERTICAL);
-        item.setGravity(Gravity.CENTER_HORIZONTAL);
-        item.setClipChildren(false);
-
-        final FrameLayout icon = new FrameLayout(this);
-        icon.setBackground(Ui.round(this, 18, Ui.hue(app.pkg)));
-        icon.setElevation(dp(4));
-        if (app.icon != null) {
-            ImageView iv = new ImageView(this);
-            iv.setImageDrawable(copy(app.icon));
-            iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            icon.addView(iv, new FrameLayout.LayoutParams(dp(DOCK_ICON * 2 / 3), dp(DOCK_ICON * 2 / 3), Gravity.CENTER));
-        } else {
-            icon.addView(Ui.text(this, app.label.substring(0, 1), 30, true, Ui.WHITE),
-                    new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
-        }
-        final TextView label = Ui.oneLine(Ui.text(this, app.label, 11, true, Ui.WHITE));
-        label.setGravity(Gravity.CENTER);
-        label.setAlpha(0f);
-
-        item.addView(icon, new LinearLayout.LayoutParams(dp(DOCK_ICON), dp(DOCK_ICON)));
-        LinearLayout.LayoutParams llp = labelParams();
-        item.addView(label, llp);
-
-        bindApp(icon, app, SEC_DOCK, DOCK_FOCUS_SCALE, 18, label);
-        return item;
-    }
-
-    /** Pulsanti speciali della barra: "+" (tratteggiato) e "Tutte le app". */
-    private View dockAction(int iconRes, String text, boolean dashed, View.OnClickListener click) {
-        LinearLayout item = new LinearLayout(this);
-        item.setOrientation(LinearLayout.VERTICAL);
-        item.setGravity(Gravity.CENTER_HORIZONTAL);
-        item.setClipChildren(false);
-
-        final FrameLayout box = new FrameLayout(this);
-        GradientDrawable bg;
-        if (dashed) {
-            bg = Ui.round(this, 18, Color.TRANSPARENT);
-            bg.setStroke(dp(2), 0x80FFFFFF, dp(6), dp(5));
-        } else {
-            bg = Ui.round(this, 18, 0x24FFFFFF);
-            bg.setStroke(Math.max(1, dp(1)), 0x33FFFFFF);
-        }
-        box.setBackground(bg);
-        ImageView iv = new ImageView(this);
-        iv.setImageResource(iconRes);
-        iv.setImageTintList(android.content.res.ColorStateList.valueOf(Ui.WHITE));
-        box.addView(iv, new FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER));
-        box.setFocusable(true);
-        box.setClickable(true);
-        box.setTag("act:" + text);
-        box.setContentDescription(text);
-        box.setOnClickListener(click);
-
-        final TextView label = Ui.oneLine(Ui.text(this, text, 11, true, Ui.WHITE));
-        label.setGravity(Gravity.CENTER);
-        label.setAlpha(0f);
-        item.addView(box, new LinearLayout.LayoutParams(dp(DOCK_ICON), dp(DOCK_ICON)));
-        LinearLayout.LayoutParams llp = labelParams();
-        item.addView(label, llp);
-
-        final GradientDrawable ring = Ui.ring(this, 18);
-        box.setOnFocusChangeListener((v, has) -> {
-            Ui.focusScale(v, has, DOCK_FOCUS_SCALE);
-            box.setForeground(has ? ring : null);
-            label.animate().alpha(has ? 1f : 0f).setDuration(140).start();
+        // La selezione va ripristinata DOPO il layout: prima le posizioni sono tutte 0
+        // e lo scorrimento riporterebbe in cima anche se l'app era in fondo alla griglia.
+        col.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                col.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                restoreFocus();
+            }
         });
-        return item;
+        col.requestLayout();
     }
 
-    /**
-     * L'etichetta sotto l'icona è un po' più larga dell'icona ma non allarga la
-     * colonna: margini negativi, così lo spazio tra le icone resta quello previsto.
-     */
-    private LinearLayout.LayoutParams labelParams() {
-        int extra = dp(DOCK_GAP);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(DOCK_ICON) + 2 * extra,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(-extra, dp(7), -extra, 0);
+    /** Ogni cella occupa un riquadro più mezzo spazio per lato: 5 colonne = larghezza esatta. */
+    private GridLayout.LayoutParams cellParams() {
+        GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+        lp.width = tileW;
+        lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+        lp.setMargins(gap / 2, 0, gap / 2, dp(14));
         return lp;
     }
 
-    /** Riquadro 16:9 (Recenti e Tutte le app): banner TV se c'è, altrimenti icona e nome. */
-    private View card(final AppEntry app, String section, boolean translucent) {
-        final FrameLayout tile = new FrameLayout(this);
-        int base = Ui.hue(app.pkg);
-        tile.setBackground(Ui.round(this, 14, translucent ? (base & 0x00FFFFFF) | 0xBF000000 : base));
+    // ================================================================ riquadri
+
+    /** Riquadro di un'app: banner TV (o icona e nome) e, sotto, il nome visibile solo se selezionato. */
+    private View appCell(final AppEntry app, final String section, final boolean firstRow) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setGravity(Gravity.CENTER_HORIZONTAL);
+        cell.setClipChildren(false);
+
+        FrameLayout tile = new FrameLayout(this);
+        tile.setBackground(Ui.round(this, 12, Ui.hue(app.pkg)));
         tile.setOutlineProvider(ViewOutlineProvider.BACKGROUND);
         tile.setClipToOutline(true);
+        tile.setElevation(dp(2));
 
         if (app.banner != null) {
             ImageView iv = new ImageView(this);
@@ -654,84 +528,202 @@ public class MainActivity extends Activity {
         } else {
             LinearLayout inner = new LinearLayout(this);
             inner.setOrientation(LinearLayout.VERTICAL);
-            inner.setPadding(dp(12), dp(12), dp(12), dp(10));
-            FrameLayout ib = new FrameLayout(this);
-            ib.setBackground(Ui.round(this, 9, 0x2EFFFFFF));
+            inner.setGravity(Gravity.CENTER);
+            inner.setPadding(dp(8), dp(6), dp(8), dp(6));
             if (app.icon != null) {
                 ImageView iv = new ImageView(this);
                 iv.setImageDrawable(copy(app.icon));
-                ib.addView(iv, new FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER));
+                iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                int s = Math.min(dp(44), tileH / 2);
+                inner.addView(iv, new LinearLayout.LayoutParams(s, s));
             }
-            inner.addView(ib, new LinearLayout.LayoutParams(dp(34), dp(34)));
-            inner.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
-            inner.addView(Ui.oneLine(Ui.text(this, app.label, 13, true, Ui.WHITE)));
+            TextView name = Ui.text(this, app.label, 13, true, Ui.WHITE);
+            name.setGravity(Gravity.CENTER);
+            name.setMaxLines(2);
+            name.setEllipsize(TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams nlp = wrap();
+            nlp.topMargin = dp(4);
+            inner.addView(name, nlp);
             tile.addView(inner, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
-        bindApp(tile, app, section, 1.08f, 14, null);
-        if (section.equals(SEC_ALL) && firstAllView == null) firstAllView = tile;
-        return tile;
-    }
+        cell.addView(tile, new LinearLayout.LayoutParams(tileW, tileH));
 
-    /** Comportamento comune: selezione, apertura, menu, aggiornamento dell'area hero. */
-    private void bindApp(final FrameLayout v, final AppEntry app, final String section,
-                         final float scale, float radius, final View label) {
-        final String tag = section + app.key;
-        v.setTag(tag);
-        tagApps.put(tag, app);
-        v.setFocusable(true);
-        v.setClickable(true);
-        v.setLongClickable(true);
-        v.setContentDescription(app.label);
-        final GradientDrawable ring = Ui.ring(this, radius);
-        v.setOnFocusChangeListener((view, has) -> {
-            Ui.focusScale(view, has, scale);
-            if (label != null) {
-                label.animate().alpha(has ? 1f : 0f).setDuration(140).start();
-            }
-            v.setForeground(has ? ring : null);
-            if (has) {
-                focusTag = tag;
-                showHero(app, section);
-            }
-        });
-        v.setOnClickListener(view -> launch(app));
-        v.setOnLongClickListener(view -> {
+        TextView label = Ui.oneLine(Ui.text(this, app.label, 13, true, Ui.WHITE));
+        label.setGravity(Gravity.CENTER);
+        label.setAlpha(0f);
+        cell.addView(label, labelParams());
+
+        bindTile(tile, label, section + app.key, firstRow, app, section, v -> launch(app));
+        tile.setLongClickable(true);
+        tile.setOnLongClickListener(v -> {
             showAppMenu(app);
             return true;
         });
+        return cell;
+    }
+
+    /** Riquadro tratteggiato «Aggiungi» in fondo ai preferiti. */
+    private View addCell(boolean firstRow) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setGravity(Gravity.CENTER_HORIZONTAL);
+        cell.setClipChildren(false);
+
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setGravity(Gravity.CENTER);
+        GradientDrawable bg = Ui.round(this, 12, 0x0FFFFFFF);
+        bg.setStroke(dp(2), 0x73FFFFFF, dp(7), dp(5));
+        tile.setBackground(bg);
+        ImageView plus = new ImageView(this);
+        plus.setImageResource(R.drawable.ic_plus);
+        tile.addView(plus, new LinearLayout.LayoutParams(dp(26), dp(26)));
+        TextView t = Ui.text(this, "Aggiungi", 13, true, 0xD9FFFFFF);
+        LinearLayout.LayoutParams tlp = wrap();
+        tlp.topMargin = dp(6);
+        tile.addView(t, tlp);
+        tile.setContentDescription("Aggiungi ai preferiti");
+        cell.addView(tile, new LinearLayout.LayoutParams(tileW, tileH));
+
+        TextView label = Ui.oneLine(Ui.text(this, "Aggiungi ai preferiti", 13, true, Ui.WHITE));
+        label.setGravity(Gravity.CENTER);
+        label.setAlpha(0f);
+        cell.addView(label, labelParams());
+
+        bindTile(tile, label, "act:add", firstRow, null, null, v -> showAddApps());
+        return cell;
+    }
+
+    /** L'etichetta può essere più larga del riquadro (occupa anche gli spazi) senza allargare la colonna. */
+    private LinearLayout.LayoutParams labelParams() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(tileW + gap, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(-gap / 2, dp(14), -gap / 2, 0);
+        return lp;
+    }
+
+    /**
+     * Comportamento della selezione, come su Apple TV: il riquadro si solleva
+     * (più grande, ombra, riflesso in alto), compare il nome sotto, il Top Shelf
+     * mostra l'app e la pagina scorre per tenerlo ben visibile.
+     */
+    private void bindTile(final ViewGroup tile, final TextView label, final String tag, final boolean firstRow,
+                          final AppEntry app, final String section, View.OnClickListener click) {
+        tile.setTag(tag);
+        if (app != null) {
+            tagApps.put(tag, app);
+            tile.setContentDescription(app.label);
+        }
+        tile.setFocusable(true);
+        tile.setClickable(true);
+        tile.setOnClickListener(click);
+        final Drawable sheen = sheen();
+        tile.setOnFocusChangeListener((v, has) -> {
+            float s = has ? FOCUS_SCALE : 1f;
+            v.animate().scaleX(s).scaleY(s).translationZ(has ? dp(16) : 0).setDuration(160).start();
+            v.setForeground(has ? sheen : null);
+            label.animate().alpha(has ? 1f : 0f).setDuration(160).start();
+            if (!has) return;
+            focusTag = tag;
+            if (app != null) showHero(app, section);
+            if (firstRow) scroll.smoothScrollTo(0, 0);
+            else ensureVisible(v);
+        });
+    }
+
+    /** Riflesso chiaro in alto + bordo sottile: l'effetto "vetro" dei riquadri selezionati. */
+    private Drawable sheen() {
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x40FFFFFF, 0x0DFFFFFF, 0x00FFFFFF});
+        g.setCornerRadius(dp(12));
+        g.setStroke(Math.max(1, dp(1)), 0x66FFFFFF);
+        return g;
+    }
+
+    /** Scorre la pagina quanto basta perché il riquadro (ingrandito) e il suo nome restino ben dentro lo schermo. */
+    private void ensureVisible(View v) {
+        int top = 0;
+        View p = v;
+        while (p != null && p != col) {
+            top += p.getTop();
+            p = p.getParent() instanceof View ? (View) p.getParent() : null;
+        }
+        int bottom = top + v.getHeight() + dp(36);   // spazio per il nome sotto
+        int y = scroll.getScrollY();
+        int h = scroll.getHeight();
+        int pad = dp(40);
+        if (bottom + pad > y + h) scroll.smoothScrollTo(0, bottom + pad - h);
+        else if (top - pad < y) scroll.smoothScrollTo(0, Math.max(0, top - pad));
     }
 
     private void showHero(AppEntry app, String section) {
         heroApp = app;
-        heroOver.setText(SEC_DOCK.equals(section) ? "NELLA BARRA" : SEC_REC.equals(section) ? "RECENTE" : "APP");
+        heroOver.setText(SEC_FAV.equals(section) ? "PREFERITO" : "APP");
         heroTitle.setText(app.label);
         long ts = prefs.lastLaunch(app.key);
-        String meta = app.pkg;
+        String meta = "Premi OK per aprire  ·  ≡ per le opzioni";
         if (ts > 0) {
             long now = System.currentTimeMillis();
             CharSequence when = now - ts < DateUtils.MINUTE_IN_MILLIS ? "adesso"
                     : DateUtils.getRelativeTimeSpanString(ts, now, DateUtils.MINUTE_IN_MILLIS);
-            meta = "Aperta " + when + "  ·  " + app.pkg;
+            meta = "Aperta " + when + "   ·   " + meta;
         }
         heroMeta.setText(meta);
+        shelf.setAppColor(appColor(app));
+    }
+
+    /** Colore medio del banner (o dell'icona) per tingere il Top Shelf, come fa Apple TV. */
+    private int appColor(AppEntry a) {
+        Integer cached = colorCache.get(a.key);
+        if (cached != null) return cached;
+        int color = Ui.hue(a.pkg);
+        Drawable d = copy(a.banner != null ? a.banner : a.icon);
+        if (d != null) {
+            try {
+                Bitmap b = Bitmap.createBitmap(16, 9, Bitmap.Config.ARGB_8888);
+                d.setBounds(0, 0, 16, 9);
+                d.draw(new Canvas(b));
+                long r = 0, g = 0, bl = 0, n = 0;
+                for (int y = 0; y < 9; y++) {
+                    for (int x = 0; x < 16; x++) {
+                        int c = b.getPixel(x, y);
+                        if (Color.alpha(c) < 128) continue;
+                        r += Color.red(c);
+                        g += Color.green(c);
+                        bl += Color.blue(c);
+                        n++;
+                    }
+                }
+                b.recycle();
+                if (n > 0) {
+                    float[] hsv = new float[3];
+                    Color.RGBToHSV((int) (r / n), (int) (g / n), (int) (bl / n), hsv);
+                    hsv[1] = Math.max(hsv[1], 0.45f);                   // un po' di colore anche dai banner grigi
+                    hsv[2] = Math.min(Math.max(hsv[2], 0.35f), 0.62f);  // né nero né abbagliante
+                    color = Color.HSVToColor(hsv);
+                }
+            } catch (RuntimeException ignored) {
+            }
+        }
+        colorCache.put(a.key, color);
+        return color;
     }
 
     private void restoreFocus() {
-        View target = focusTag != null ? scroll.findViewWithTag(focusTag) : null;
-        if (target == null) target = firstDockView != null ? firstDockView : firstAllView;
+        View target = focusTag != null ? col.findViewWithTag(focusTag) : null;
+        if (target == null) target = firstFavView != null ? firstFavView : firstAllView;
         if (target != null) target.requestFocus();
     }
 
     private void goTop() {
-        if (scroll != null) scroll.smoothScrollTo(0, 0);
         focusTag = null;
-        if (firstDockView != null) firstDockView.requestFocus();
+        if (scroll != null) scroll.smoothScrollTo(0, 0);
+        if (firstFavView != null) firstFavView.requestFocus();
     }
 
     private void scrollToAll() {
         if (firstAllView != null) firstAllView.requestFocus();
-        ui.post(() -> scroll.smoothScrollTo(0, Math.max(0, allHeader.getTop() - dp(12))));
+        ui.post(() -> scroll.smoothScrollTo(0, Math.max(0, allHeader.getTop() - dp(24))));
     }
 
     // ================================================================ azioni sulle app
@@ -753,19 +745,19 @@ public class MainActivity extends Activity {
 
         items.add(new GlassMenu.Item("Apri", () -> launch(app)));
         if (idx < 0) {
-            items.add(new GlassMenu.Item("Aggiungi alla barra", () -> {
+            items.add(new GlassMenu.Item("Aggiungi ai preferiti", () -> {
                 dock.add(app.key);
                 prefs.setDock(dock);
-                focusTag = SEC_DOCK + app.key;
+                focusTag = SEC_FAV + app.key;
                 rebuildAll();
             }));
         } else {
             if (idx > 0) items.add(new GlassMenu.Item("Sposta a sinistra", () -> moveDock(dock, idx, idx - 1, app)));
             if (idx < dock.size() - 1) items.add(new GlassMenu.Item("Sposta a destra", () -> moveDock(dock, idx, idx + 1, app)));
-            items.add(new GlassMenu.Item("Rimuovi dalla barra", () -> {
+            items.add(new GlassMenu.Item("Rimuovi dai preferiti", () -> {
                 dock.remove(app.key);
                 prefs.setDock(dock);
-                if ((SEC_DOCK + app.key).equals(focusTag)) focusTag = null;
+                if ((SEC_FAV + app.key).equals(focusTag)) focusTag = null;
                 rebuildAll();
             }));
         }
@@ -795,11 +787,11 @@ public class MainActivity extends Activity {
         String k = dock.remove(from);
         dock.add(to, k);
         prefs.setDock(dock);
-        focusTag = SEC_DOCK + app.key;
+        focusTag = SEC_FAV + app.key;
         rebuildAll();
     }
 
-    // ================================================================ pulsante + : aggiungi alla barra
+    // ================================================================ Aggiungi: scegli i preferiti
 
     private void showAddApps() {
         final List<String> dock = prefs.dock();
@@ -820,7 +812,7 @@ public class MainActivity extends Activity {
         head.addView(badge, new LinearLayout.LayoutParams(dp(30), dp(30)));
         LinearLayout texts = new LinearLayout(this);
         texts.setOrientation(LinearLayout.VERTICAL);
-        texts.addView(Ui.text(this, "Aggiungi alla barra", 19, true, Ui.WHITE));
+        texts.addView(Ui.text(this, "Aggiungi ai preferiti", 19, true, Ui.WHITE));
         TextView sub = Ui.text(this, "Premi OK per aggiungere o togliere un'app", 12, false, Ui.TEXT_FAINT);
         sub.setPadding(0, dp(3), 0, 0);
         texts.addView(sub);
@@ -836,7 +828,7 @@ public class MainActivity extends Activity {
         g.setClipToPadding(false);
         g.setPadding(dp(6), dp(10), dp(6), dp(10));
         final TextView count = Ui.text(this, "", 12, false, Ui.TEXT_FAINT);
-        final Runnable refreshCount = () -> count.setText(dock.size() + " app nella barra  ·  Per riordinarle usa «Sposta» nel menu dell'app");
+        final Runnable refreshCount = () -> count.setText(dock.size() + " app nei preferiti  ·  Per riordinarle usa «Sposta» nel menu dell'app");
         refreshCount.run();
 
         View first = null;
@@ -1026,7 +1018,7 @@ public class MainActivity extends Activity {
 
     private void showOptions(final int focusIndex) {
         final boolean svc = isRedirectServiceEnabled();
-        final int theme = Math.floorMod(prefs.theme(), WallpaperView.themeCount());
+        final int theme = Math.floorMod(prefs.theme(), ShelfView.themeCount());
         final int hiddenCount = prefs.hidden().size();
         final int latest = prefs.latestVersion();
 
@@ -1063,9 +1055,9 @@ public class MainActivity extends Activity {
         addRow(g1, rows, "Apri la home Amazon per 60 secondi", "Apri ›", Ui.TEXT_DIM, holder, i -> openAmazonHome());
 
         LinearLayout g2 = group(panel);
-        addRow(g2, rows, "Sfondo", WallpaperView.NAMES[theme], Ui.TEXT_DIM, holder, i -> {
-            prefs.setTheme((theme + 1) % WallpaperView.themeCount());
-            wallpaper.setTheme(prefs.theme());
+        addRow(g2, rows, "Sfondo", ShelfView.NAMES[theme], Ui.TEXT_DIM, holder, i -> {
+            prefs.setTheme((theme + 1) % ShelfView.themeCount());
+            shelf.setTheme(prefs.theme());
             showOptions(i);
         });
         addRow(g2, rows, "App nascoste", hiddenCount + (hiddenCount > 0 ? "  ·  Ripristina" : ""), Ui.TEXT_DIM,
@@ -1253,13 +1245,11 @@ public class MainActivity extends Activity {
         if (clock == null) return;
         Date now = new Date();
         clock.setText(android.text.format.DateFormat.getTimeFormat(this).format(now));
-        String d = new SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(now);
-        dateView.setText(d.isEmpty() ? d : Character.toUpperCase(d.charAt(0)) + d.substring(1));
     }
 
     /**
      * Una Drawable può stare in una sola vista alla volta: la stessa icona usata
-     * nella barra, nei Recenti e nella griglia va duplicata, altrimenti sparisce
+     * nei preferiti, nella griglia e nei menu va duplicata, altrimenti sparisce
      * o si deforma.
      */
     private android.graphics.drawable.Drawable copy(android.graphics.drawable.Drawable d) {
