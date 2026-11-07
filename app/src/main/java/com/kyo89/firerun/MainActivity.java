@@ -405,13 +405,17 @@ public class MainActivity extends Activity {
         box.setClipToPadding(false);
         box.setPadding(0, dp(4), dp(18), dp(4));
 
-        // Le app: lo scorrimento ritaglia ai bordi della barra (niente icone fuori),
-        // il margine interno lascia spazio all'ingrandimento dell'icona selezionata.
-        HorizontalScrollView hs = new HorizontalScrollView(this);
+        // Le app scorrono ritagliate SOLO ai lati (niente icone fuori dalla barra a destra
+        // o a sinistra); sopra e sotto c'è spazio libero, così l'icona selezionata,
+        // ingrandita e sollevata, non viene tagliata.
+        final HorizontalScrollView hs = new HorizontalScrollView(this);
         hs.setHorizontalScrollBarEnabled(false);
-        hs.setClipChildren(true);
+        hs.setClipChildren(false);
         hs.setClipToPadding(false);
         hs.setPadding(dp(18), dp(10), dp(10), dp(4));
+        final int spare = dp(48);
+        hs.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
+                v.setClipBounds(new android.graphics.Rect(0, -spare, r - l, (b - t) + spare)));
         dockRow = new LinearLayout(this);
         dockRow.setOrientation(LinearLayout.HORIZONTAL);
         dockRow.setGravity(Gravity.TOP);
