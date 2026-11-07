@@ -18,8 +18,9 @@ import android.view.View;
  * griglia e si dissolve quando si scorre verso il basso.
  */
 final class ShelfView extends View {
-    static final String[] NAMES = {"Colore dell'app", "Sequoia", "Notte", "Prugna", "Grafite"};
-    private static final int[] FIXED = {0, 0xFF0E7A72, 0xFF2A4A9A, 0xFF6A2D7E, 0xFF4A4D55};
+    static final String[] NAMES = {"Colore dell'app", "Sequoia", "Notte", "Prugna", "Grafite", "Immagine dal PC"};
+    static final int THEME_IMAGE = 5;
+    private static final int[] FIXED = {0, 0xFF0E7A72, 0xFF2A4A9A, 0xFF6A2D7E, 0xFF4A4D55, 0};
     private static final int BASE = 0xFF0A0C10;
 
     private int theme;
@@ -32,6 +33,11 @@ final class ShelfView extends View {
     private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint fade = new Paint();
     private final Path wavePath = new Path(), linePath = new Path();
+    private final Paint imagePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final Paint imageShade = new Paint();
+    private final android.graphics.Rect src = new android.graphics.Rect();
+    private final android.graphics.Rect dst = new android.graphics.Rect();
+    private android.graphics.Bitmap image;
 
     ShelfView(Context c) {
         super(c);
@@ -46,7 +52,14 @@ final class ShelfView extends View {
 
     void setTheme(int t) {
         theme = Math.floorMod(t, NAMES.length);
-        if (theme > 0) animateTo(FIXED[theme]);
+        if (theme > 0 && theme != THEME_IMAGE) animateTo(FIXED[theme]);
+        invalidate();
+    }
+
+    /** Immagine scelta dal PC (deploy.ps1 -Sfondo); null per toglierla. */
+    void setImage(android.graphics.Bitmap b) {
+        image = b;
+        invalidate();
     }
 
     /** Colore dell'app selezionata: usato solo con il tema «Colore dell'app». */
@@ -102,7 +115,24 @@ final class ShelfView extends View {
     protected void onDraw(Canvas canvas) {
         int w = getWidth(), h = getHeight();
         canvas.drawColor(BASE);
-        if (w == 0 || reveal <= 0f) return;
+        if (w == 0) return;
+
+        if (theme == THEME_IMAGE && image != null) {
+            // Immagine a tutto schermo ("riempi e ritaglia"), un velo scuro per leggere i
+            // testi e la solita sfumatura verso la griglia. Scorrendo resta più tenue.
+            int iw = image.getWidth(), ih = image.getHeight();
+            float scale = Math.max(w / (float) iw, h / (float) ih);
+            int cw = Math.round(w / scale), ch = Math.round(h / scale);
+            src.set((iw - cw) / 2, (ih - ch) / 2, (iw - cw) / 2 + cw, (ih - ch) / 2 + ch);
+            dst.set(0, 0, w, h);
+            imagePaint.setAlpha(Math.round(255 * (0.40f + 0.60f * reveal)));
+            canvas.drawBitmap(image, src, dst, imagePaint);
+            imageShade.setColor(0x47000000);
+            canvas.drawRect(0, 0, w, h, imageShade);
+            canvas.drawRect(0, 0, w, h, fade);
+            return;
+        }
+        if (reveal <= 0f) return;
 
         int rgb = color & 0x00FFFFFF;
         float[] hsv = new float[3];

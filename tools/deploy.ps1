@@ -7,6 +7,7 @@
     .\deploy.ps1 -FireStick 192.168.1.50 -Force            # reinstalla anche se già aggiornato
     .\deploy.ps1 -FireStick 192.168.1.50 -DisattivaHomeAmazon
     .\deploy.ps1 -FireStick 192.168.1.50 -RiattivaHomeAmazon
+    .\deploy.ps1 -FireStick 192.168.1.50 -Sfondo "C:\Immagini\montagne.jpg"   # immagine di sfondo
 
   Cosa fa:
     1. Se manca adb, scarica gli Android platform-tools ufficiali di Google
@@ -22,7 +23,8 @@ param(
     [switch]$Force,
     [switch]$AttivaTastoHome,
     [switch]$DisattivaHomeAmazon,
-    [switch]$RiattivaHomeAmazon
+    [switch]$RiattivaHomeAmazon,
+    [string]$Sfondo
 )
 
 $ErrorActionPreference = "Stop"
@@ -106,6 +108,20 @@ if ($Force -or $latest -gt $installed) {
     Write-Host "FireRun $latest installato." -ForegroundColor Green
 } else {
     Write-Host "FireRun è già aggiornato." -ForegroundColor Green
+}
+
+# --- immagine di sfondo ------------------------------------------------------
+if ($Sfondo) {
+    if (-not (Test-Path -LiteralPath $Sfondo -PathType Leaf)) { throw "Immagine non trovata: $Sfondo" }
+    $ext = [IO.Path]::GetExtension($Sfondo).ToLowerInvariant()
+    if ($ext -notin @(".jpg", ".jpeg", ".png", ".webp")) { throw "Usa un'immagine JPG, PNG o WEBP (trovato: $ext)" }
+    $remoteDir = "/sdcard/Android/data/$Pkg/files"
+    Adb-Raw -s $Target shell mkdir -p $remoteDir | Out-Null
+    Write-Host "Copio lo sfondo sul Fire Stick..."
+    Invoke-Adb push (Resolve-Path -LiteralPath $Sfondo).Path "$remoteDir/sfondo" | Out-Null
+    # Riporta FireRun in primo piano: rilegge lo sfondo e lo applica subito
+    Invoke-Adb shell am start -n "$Pkg/.MainActivity" | Out-Null
+    Write-Host "Sfondo inviato: FireRun lo applica subito." -ForegroundColor Green
 }
 
 # --- tasto Home --------------------------------------------------------------

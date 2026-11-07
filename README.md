@@ -10,7 +10,8 @@ Nessuna pubblicità, nessun contenuto sponsorizzato.
 - Prima i **preferiti** (con il riquadro **Aggiungi** per sceglierli), poi **Tutte le app**
 - In alto a destra: **Cerca**, **Impostazioni** del Fire Stick, **Opzioni FireRun** (la fiamma), orologio
 - Tieni premuto OK (o tasto ≡) su un'app: apri, aggiungi/togli dai preferiti, sposta, nascondi, info, disinstalla
-- Sfondo: colore dell'app (come Apple TV) oppure Sequoia, Notte, Prugna, Grafite
+- Sfondo: colore dell'app (come Apple TV), Sequoia, Notte, Prugna, Grafite oppure **una tua immagine dal PC**:
+  `deploy.ps1 -FireStick <IP> -Sfondo "C:\percorso\immagine.jpg"`
 - Servizio **Tasto Home**: quando Fire OS apre la home Amazon, torna subito su FireRun
 - **Si aggiorna da solo** dalle release di GitHub
 

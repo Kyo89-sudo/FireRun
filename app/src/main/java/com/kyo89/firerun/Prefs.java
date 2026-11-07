@@ -68,6 +68,14 @@ final class Prefs {
 
     // --- aspetto ---
 
+    long wallpaperStamp() {
+        return sp.getLong("wall_stamp", 0L);
+    }
+
+    void setWallpaperStamp(long v) {
+        sp.edit().putLong("wall_stamp", v).apply();
+    }
+
     int theme() {
         return sp.getInt("theme", 0);
     }

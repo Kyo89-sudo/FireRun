@@ -113,6 +113,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         prefs = new Prefs(this);
+        getExternalFilesDir(null); // crea la cartella dove deploy.ps1 copia l'immagine di sfondo
         computeSizes();
         buildShell();
     }
@@ -148,6 +149,7 @@ public class MainActivity extends Activity {
         // Tornati in FireRun: il tasto Home riprende a funzionare normalmente.
         if (prefs.bypassUntil() != 0 || prefs.systemPauseUntil() != 0) prefs.clearPauses();
         checkUpdate(false); // dopo visible=true: l'auto-aggiornamento parte solo con FireRun davanti
+        checkWallpaper();
     }
 
     @Override
@@ -1055,11 +1057,24 @@ public class MainActivity extends Activity {
         addRow(g1, rows, "Apri la home Amazon per 60 secondi", "Apri ›", Ui.TEXT_DIM, holder, i -> openAmazonHome());
 
         LinearLayout g2 = group(panel);
+        final boolean hasImage = wallpaperFile() != null && wallpaperFile().isFile();
         addRow(g2, rows, "Sfondo", ShelfView.NAMES[theme], Ui.TEXT_DIM, holder, i -> {
-            prefs.setTheme((theme + 1) % ShelfView.themeCount());
-            shelf.setTheme(prefs.theme());
+            int next = (theme + 1) % ShelfView.themeCount();
+            if (next == ShelfView.THEME_IMAGE && !hasImage) next = (next + 1) % ShelfView.themeCount();
+            prefs.setTheme(next);
+            shelf.setTheme(next);
             showOptions(i);
         });
+        addRow(g2, rows, "Immagine di sfondo", hasImage ? "Rimuovi" : "dal PC: deploy.ps1 -Sfondo", Ui.TEXT_DIM,
+                holder, i -> {
+                    if (hasImage) removeWallpaper();
+                    else GlassMenu.message(this, "Immagine di sfondo dal PC",
+                            "Dalla cartella tools di FireRun, in PowerShell:\n\n"
+                                    + "powershell -ExecutionPolicy Bypass -File .\\deploy.ps1 -FireStick <IP> "
+                                    + "-Sfondo \"C:\\percorso\\immagine.jpg\"\n\n"
+                                    + "Va bene un JPG o PNG, meglio se 1920×1080.");
+                    if (hasImage) showOptions(i);
+                });
         addRow(g2, rows, "App nascoste", hiddenCount + (hiddenCount > 0 ? "  ·  Ripristina" : ""), Ui.TEXT_DIM,
                 holder, i -> {
                     prefs.setHidden(new java.util.HashSet<String>());
@@ -1174,6 +1189,86 @@ public class MainActivity extends Activity {
     }
 
     // ================================================================ aggiornamenti
+
+    // ================================================================ immagine di sfondo dal PC
+
+    private static final String WALLPAPER_NAME = "sfondo";
+    private long loadedWallpaperStamp;
+
+    /** File copiato da deploy.ps1 -Sfondo (cartella privata di FireRun, nessun permesso necessario). */
+    private java.io.File wallpaperFile() {
+        java.io.File dir = getExternalFilesDir(null);
+        return dir == null ? null : new java.io.File(dir, WALLPAPER_NAME);
+    }
+
+    private void checkWallpaper() {
+        final java.io.File f = wallpaperFile();
+        if (f == null || !f.isFile()) {
+            loadedWallpaperStamp = 0;
+            shelf.setImage(null);
+            if (prefs.theme() == ShelfView.THEME_IMAGE) {
+                prefs.setTheme(0);
+                shelf.setTheme(0);
+            }
+            return;
+        }
+        final long stamp = f.lastModified() ^ (f.length() << 20);
+        if (stamp == loadedWallpaperStamp) return;
+        loadedWallpaperStamp = stamp;
+        final boolean isNew = stamp != prefs.wallpaperStamp();
+        final int maxW = Math.max(getResources().getDisplayMetrics().widthPixels,
+                getResources().getDisplayMetrics().heightPixels);
+        try {
+            io.execute(() -> {
+                final Bitmap b = decodeScaled(f, maxW);
+                ui.post(() -> {
+                    if (isDestroyed()) return;
+                    if (b == null) {
+                        toast("L'immagine di sfondo non è valida (usa un JPG o PNG)");
+                        return;
+                    }
+                    shelf.setImage(b);
+                    if (isNew) {
+                        prefs.setWallpaperStamp(stamp);
+                        prefs.setTheme(ShelfView.THEME_IMAGE);
+                        shelf.setTheme(ShelfView.THEME_IMAGE);
+                        toast("Nuovo sfondo applicato");
+                    }
+                });
+            });
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    /** Legge l'immagine ridotta alla risoluzione dello schermo (le foto da 20 MP esaurirebbero la memoria). */
+    private static Bitmap decodeScaled(java.io.File f, int targetW) {
+        try {
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeFile(f.getPath(), o);
+            if (o.outWidth <= 0 || o.outHeight <= 0) return null;
+            int sample = 1;
+            while (o.outWidth / (sample * 2) >= targetW && o.outHeight / (sample * 2) >= targetW * 9 / 16) sample *= 2;
+            android.graphics.BitmapFactory.Options d = new android.graphics.BitmapFactory.Options();
+            d.inSampleSize = sample;
+            return android.graphics.BitmapFactory.decodeFile(f.getPath(), d);
+        } catch (OutOfMemoryError | RuntimeException e) {
+            return null;
+        }
+    }
+
+    private void removeWallpaper() {
+        java.io.File f = wallpaperFile();
+        if (f != null) //noinspection ResultOfMethodCallIgnored
+            f.delete();
+        prefs.setWallpaperStamp(0);
+        loadedWallpaperStamp = 0;
+        shelf.setImage(null);
+        prefs.setTheme(0);
+        shelf.setTheme(0);
+    }
+
+    // ================================================================ aggiornamenti (continua)
 
     private void checkUpdate(final boolean manual) {
         long now = System.currentTimeMillis();
