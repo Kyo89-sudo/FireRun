@@ -62,6 +62,8 @@ public class HomeRedirectService extends AccessibilityService {
     private boolean retryPending;
     private long lastLaunch;
     private boolean screenOnRegistered;
+    /** Tastiere installate: compaiono sopra le altre app senza cambiare schermata. */
+    private final java.util.Set<String> keyboards = new java.util.HashSet<>();
 
     private final BroadcastReceiver screenOn = new BroadcastReceiver() {
         @Override
@@ -135,6 +137,7 @@ public class HomeRedirectService extends AccessibilityService {
         } catch (RuntimeException e) {
             cover = null; // senza velo funziona lo stesso, si vede solo un attimo la home Amazon
         }
+        loadKeyboards();
         if (!screenOnRegistered) {
             registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
             screenOnRegistered = true;
@@ -182,6 +185,10 @@ public class HomeRedirectService extends AccessibilityService {
         if (e == null || e.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
         CharSequence pkg = e.getPackageName(), cls = e.getClassName();
         if (pkg == null) return;
+        String className = cls != null ? cls.toString() : "";
+        // Toast, tastiera, popup: si sovrappongono alla schermata senza cambiarla.
+        // Prima azzeravano lo stato e la home Amazon poteva restare davanti.
+        if (isOverlay(className) || keyboards.contains(pkg.toString())) return;
 
         if (!AMAZON_LAUNCHER.contentEquals(pkg)) {
             // Finestre di sistema (barra, dialoghi del sistema): non dicono dove sei.
@@ -194,7 +201,10 @@ public class HomeRedirectService extends AccessibilityService {
             return;
         }
 
-        String className = cls != null ? cls.toString() : "";
+        // Dentro il launcher Amazon contano solo le sue schermate: dialoghi e finestre generiche
+        // di Android (android.app.Dialog, android.widget.*) sopra la home non devono far
+        // credere di averla lasciata.
+        if (className.isEmpty() || className.startsWith("android.")) return;
         onAmazonHome = AMAZON_HOME.equals(className);
         Prefs prefs = new Prefs(this);
         boolean redirect = onAmazonHome && !paused && prefs.redirectEnabled();
@@ -205,6 +215,24 @@ public class HomeRedirectService extends AccessibilityService {
         }
         retryPending = true;
         retryHome();
+    }
+
+    private static boolean isOverlay(String cls) {
+        return cls.contains("Toast") || cls.endsWith("$TN") || cls.startsWith("android.widget.PopupWindow")
+                || cls.equals("android.inputmethodservice.SoftInputWindow");
+    }
+
+    private void loadKeyboards() {
+        keyboards.clear();
+        try {
+            android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm == null) return;
+            for (android.view.inputmethod.InputMethodInfo info : imm.getEnabledInputMethodList()) {
+                keyboards.add(info.getPackageName());
+            }
+        } catch (RuntimeException ignored) {
+        }
     }
 
     /** Fire OS a volte lascia la home Amazon davanti dopo una raffica di eventi: si riprova una volta al secondo. */

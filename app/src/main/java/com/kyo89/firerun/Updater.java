@@ -58,6 +58,10 @@ final class Updater {
         }
     }
 
+    /** Un aggiornamento alla volta: aggiornamento automatico e pulsante insieme davano due richieste. */
+    private static final java.util.concurrent.atomic.AtomicBoolean busy =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
     static void downloadAndInstall(final Activity a, ExecutorService io, final Handler ui) {
         if (Build.VERSION.SDK_INT >= 26 && !a.getPackageManager().canRequestPackageInstalls()) {
             Toast.makeText(a, "Consenti a FireRun di installare app, poi riprova", Toast.LENGTH_LONG).show();
@@ -73,20 +77,30 @@ final class Updater {
             }
             return;
         }
+        if (!busy.compareAndSet(false, true)) {
+            Toast.makeText(a, "Aggiornamento già in corso…", Toast.LENGTH_SHORT).show();
+            return;
+        }
         Toast.makeText(a, "Scarico l'aggiornamento…", Toast.LENGTH_SHORT).show();
         final Context app = a.getApplicationContext();
         try {
             io.execute(() -> {
+                File apk = new File(app.getCacheDir(), "update.apk");
                 try {
-                    File apk = new File(app.getCacheDir(), "update.apk");
                     download(base() + "FireRun.apk", apk);
+                    if (apk.length() < 10 * 1024) throw new IOException("file scaricato non valido");
                     install(app, apk);
                 } catch (final Exception e) {
                     ui.post(() -> Toast.makeText(app, "Aggiornamento non riuscito: " + e.getMessage(),
                             Toast.LENGTH_LONG).show());
+                } finally {
+                    //noinspection ResultOfMethodCallIgnored
+                    apk.delete(); // la sessione di installazione ne ha già una copia
+                    busy.set(false);
                 }
             });
-        } catch (RuntimeException ignored) {
+        } catch (RuntimeException e) {
+            busy.set(false);
         }
     }
 

@@ -82,7 +82,7 @@ public class MainActivity extends Activity {
     private ScrollView scroll;
     private LinearLayout col;
     private GridLayout favGrid, allGrid;
-    private TextView allHeader, heroOver, heroTitle, heroMeta, clock;
+    private TextView allHeader, heroOver, heroTitle, heroMeta, clock, dateView;
     private TextView updatePill;
     private View firstFavView, firstAllView;
 
@@ -322,9 +322,17 @@ public class MainActivity extends Activity {
             return true;
         });
         bar.addView(settings, roundParams());
-        bar.addView(roundButton(R.drawable.ic_flame, "Opzioni FireRun", Ui.ACCENT, v -> showOptions(0)), roundParams());
+        bar.addView(appIconButton(), roundParams());
 
-        clock = Ui.text(this, "", 20, true, Ui.WHITE);
+        // Orologio minimale: "dom 8 nov   05:34" su una riga, con un'ombra leggera per
+        // restare leggibile su qualsiasi sfondo (anche le immagini chiare).
+        dateView = Ui.text(this, "", 14, false, 0xD9FFFFFF);
+        clock = Ui.text(this, "", 18, true, Ui.WHITE);
+        clock.setTypeface(Ui.MEDIUM);
+        for (TextView t : new TextView[]{dateView, clock}) t.setShadowLayer(dp(4), 0, dp(1), 0x99000000);
+        LinearLayout.LayoutParams dlp = wrap();
+        dlp.leftMargin = dp(8);
+        bar.addView(dateView, dlp);
         LinearLayout.LayoutParams clp = wrap();
         clp.leftMargin = dp(10);
         bar.addView(clock, clp);
@@ -367,6 +375,28 @@ public class MainActivity extends Activity {
         b.setOnFocusChangeListener((v, has) -> {
             float s = has ? 1.12f : 1f;
             v.animate().scaleX(s).scaleY(s).setDuration(120).start();
+            if (has) scroll.smoothScrollTo(0, 0);
+        });
+        return b;
+    }
+
+    /** Pulsante Opzioni: l'icona di FireRun, con l'anello bianco quando è selezionata. */
+    private View appIconButton() {
+        FrameLayout b = new FrameLayout(this);
+        ImageView iv = new ImageView(this);
+        iv.setImageResource(R.drawable.ic_launcher);
+        iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        b.addView(iv, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        b.setFocusable(true);
+        b.setClickable(true);
+        b.setContentDescription("Opzioni FireRun");
+        b.setOnClickListener(v -> showOptions(0));
+        final GradientDrawable ring = Ui.ring(this, 10);
+        b.setOnFocusChangeListener((v, has) -> {
+            float sc = has ? 1.14f : 1f;
+            v.animate().scaleX(sc).scaleY(sc).setDuration(120).start();
+            b.setForeground(has ? ring : null);
             if (has) scroll.smoothScrollTo(0, 0);
         });
         return b;
@@ -527,26 +557,40 @@ public class MainActivity extends Activity {
             tile.addView(iv, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         } else {
-            LinearLayout inner = new LinearLayout(this);
-            inner.setOrientation(LinearLayout.VERTICAL);
-            inner.setGravity(Gravity.CENTER);
-            inner.setPadding(dp(8), dp(6), dp(8), dp(6));
+            // Come Apple TV per le app senza banner: sfondo sfumato dal colore dell'icona e
+            // icona grande al centro; il nome compare sotto quando il riquadro è selezionato.
+            int c = appColor(app);
+            float[] hsv = new float[3];
+            Color.colorToHSV(c, hsv);
+            float v = hsv[2];
+            hsv[2] = Math.min(1f, v * 1.18f);
+            int top = Color.HSVToColor(hsv);
+            hsv[2] = v * 0.42f;
+            int bottom = Color.HSVToColor(hsv);
+            GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{top, bottom});
+            bg.setCornerRadius(dp(12));
+            tile.setBackground(bg);
+            GradientDrawable gloss = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{0x33FFFFFF, 0x00FFFFFF, 0x00FFFFFF});
+            View glossView = new View(this);
+            glossView.setBackground(gloss);
+            tile.addView(glossView, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             if (app.icon != null) {
                 ImageView iv = new ImageView(this);
                 iv.setImageDrawable(copy(app.icon));
                 iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-                int s = Math.min(dp(44), tileH / 2);
-                inner.addView(iv, new LinearLayout.LayoutParams(s, s));
+                int sz = Math.round(tileH * 0.58f);
+                tile.addView(iv, new FrameLayout.LayoutParams(sz, sz, Gravity.CENTER));
+            } else {
+                TextView name = Ui.text(this, app.label, 15, true, Ui.WHITE);
+                name.setGravity(Gravity.CENTER);
+                name.setMaxLines(2);
+                name.setEllipsize(TextUtils.TruncateAt.END);
+                name.setPadding(dp(10), 0, dp(10), 0);
+                tile.addView(name, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
             }
-            TextView name = Ui.text(this, app.label, 13, true, Ui.WHITE);
-            name.setGravity(Gravity.CENTER);
-            name.setMaxLines(2);
-            name.setEllipsize(TextUtils.TruncateAt.END);
-            LinearLayout.LayoutParams nlp = wrap();
-            nlp.topMargin = dp(4);
-            inner.addView(name, nlp);
-            tile.addView(inner, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
         cell.addView(tile, new LinearLayout.LayoutParams(tileW, tileH));
 
@@ -774,42 +818,44 @@ public class MainActivity extends Activity {
         final Set<String> hidden = prefs.hidden();
         List<GlassMenu.Item> items = GlassMenu.list();
 
-        items.add(new GlassMenu.Item("Apri", () -> launch(app)));
+        items.add(new GlassMenu.Item("Apri", () -> launch(app)).icon(R.drawable.ic_play));
         if (idx < 0) {
             items.add(new GlassMenu.Item("Aggiungi ai preferiti", () -> {
                 dock.add(app.key);
                 prefs.setDock(dock);
                 focusTag = SEC_FAV + app.key;
                 rebuildAll();
-            }));
+            }).icon(R.drawable.ic_star));
         } else {
-            if (idx > 0) items.add(new GlassMenu.Item("Sposta a sinistra", () -> moveDock(dock, idx, idx - 1, app)));
-            if (idx < dock.size() - 1) items.add(new GlassMenu.Item("Sposta a destra", () -> moveDock(dock, idx, idx + 1, app)));
+            if (idx > 0) items.add(new GlassMenu.Item("Sposta a sinistra",
+                    () -> moveDock(dock, idx, idx - 1, app)).icon(R.drawable.ic_arrow_left));
+            if (idx < dock.size() - 1) items.add(new GlassMenu.Item("Sposta a destra",
+                    () -> moveDock(dock, idx, idx + 1, app)).icon(R.drawable.ic_arrow_right));
             items.add(new GlassMenu.Item("Rimuovi dai preferiti", () -> {
                 dock.remove(app.key);
                 prefs.setDock(dock);
                 if ((SEC_FAV + app.key).equals(focusTag)) focusTag = null;
                 rebuildAll();
-            }));
+            }).icon(R.drawable.ic_star_off));
         }
         if (hidden.contains(app.key)) {
             items.add(new GlassMenu.Item("Mostra in «Tutte le app»", () -> {
                 hidden.remove(app.key);
                 prefs.setHidden(hidden);
                 rebuildAll();
-            }).divider());
+            }).divider().icon(R.drawable.ic_eye));
         } else {
             items.add(new GlassMenu.Item("Nascondi da «Tutte le app»", () -> {
                 hidden.add(app.key);
                 prefs.setHidden(hidden);
                 if ((SEC_ALL + app.key).equals(focusTag)) focusTag = null;
                 rebuildAll();
-            }).divider());
+            }).divider().icon(R.drawable.ic_eye_off));
         }
         items.add(new GlassMenu.Item("Informazioni app", () -> startSafe(new Intent(
-                Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + app.pkg)))));
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + app.pkg)))).icon(R.drawable.ic_info));
         items.add(new GlassMenu.Item("Disinstalla", () -> startSafe(new Intent(
-                Intent.ACTION_DELETE, Uri.parse("package:" + app.pkg)))).divider().danger());
+                Intent.ACTION_DELETE, Uri.parse("package:" + app.pkg)))).divider().danger().icon(R.drawable.ic_trash));
 
         GlassMenu.show(this, copy(app.icon), Ui.hue(app.pkg), app.label, app.pkg, items);
     }
@@ -1132,7 +1178,31 @@ public class MainActivity extends Activity {
         addRow(g3, rows, "Launcher predefinito (Android TV)", "›", Ui.TEXT_DIM, holder,
                 i -> startSafe(new Intent(Settings.ACTION_HOME_SETTINGS)));
 
-        holder[0] = GlassMenu.frame(this, panel, dp(600), Gravity.CENTER, 0);
+        // Le voci sono più di quante ne entrino in altezza su un TV (540 dp): la parte con i
+        // gruppi scorre, e la voce selezionata viene sempre portata in vista.
+        LinearLayout header = (LinearLayout) panel.getChildAt(0);
+        panel.removeView(header);
+        LinearLayout groups = panel;
+        LinearLayout outer = new LinearLayout(this);
+        outer.setOrientation(LinearLayout.VERTICAL);
+        outer.setBackground(groups.getBackground());
+        outer.setPadding(groups.getPaddingLeft(), groups.getPaddingTop(), groups.getPaddingRight(), dp(12));
+        groups.setBackground(null);
+        groups.setPadding(0, 0, 0, dp(8));
+        outer.addView(header);
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        sv.setClipToPadding(false);
+        sv.setFillViewport(false);
+        sv.addView(groups, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        int maxH = screenH - dp(48) - dp(70);
+        groups.measure(View.MeasureSpec.makeMeasureSpec(dp(556), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        outer.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                Math.min(maxH, groups.getMeasuredHeight())));
+
+        holder[0] = GlassMenu.frame(this, outer, dp(600), Gravity.CENTER, 0);
         holder[0].show();
         rows.get(Math.max(0, Math.min(focusIndex, rows.size() - 1))).requestFocus();
     }
@@ -1417,6 +1487,9 @@ public class MainActivity extends Activity {
         if (clock == null) return;
         Date now = new Date();
         clock.setText(android.text.format.DateFormat.getTimeFormat(this).format(now));
+        // "dom 8 nov": giorno e mese abbreviati, senza il punto che alcune lingue aggiungono
+        String d = new java.text.SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(now).replace(".", "");
+        dateView.setText(d);
     }
 
     /**

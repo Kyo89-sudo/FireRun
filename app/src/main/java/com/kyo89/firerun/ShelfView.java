@@ -38,6 +38,10 @@ final class ShelfView extends View {
     private final android.graphics.Rect src = new android.graphics.Rect();
     private final android.graphics.Rect dst = new android.graphics.Rect();
     private android.graphics.Bitmap image;
+    // Il gradiente del Top Shelf si ricrea solo se cambiano colore o dimensioni
+    // (prima veniva allocato a ogni fotogramma durante le animazioni).
+    private int glowColor, glowW, glowH;
+    private final float[] hsv = new float[3];
 
     ShelfView(Context c) {
         super(c);
@@ -134,14 +138,18 @@ final class ShelfView extends View {
         }
         if (reveal <= 0f) return;
 
-        int rgb = color & 0x00FFFFFF;
-        float[] hsv = new float[3];
-        Color.colorToHSV(color, hsv);
-        hsv[2] *= 0.45f;
-        int dark = Color.HSVToColor(hsv) & 0x00FFFFFF;
-        glow.setShader(new RadialGradient(0.78f * w, 0.08f * h, 1.15f * w,
-                new int[]{rgb | alpha(0.90f), dark | alpha(0.75f), BASE & 0x00FFFFFF},
-                new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP));
+        if (glow.getShader() == null || glowColor != color || glowW != w || glowH != h) {
+            int rgb = color & 0x00FFFFFF;
+            Color.colorToHSV(color, hsv);
+            hsv[2] *= 0.45f;
+            int dark = Color.HSVToColor(hsv) & 0x00FFFFFF;
+            glow.setShader(new RadialGradient(0.78f * w, 0.08f * h, 1.15f * w,
+                    new int[]{rgb | alpha(0.90f), dark | alpha(0.75f), BASE & 0x00FFFFFF},
+                    new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP));
+            glowColor = color;
+            glowW = w;
+            glowH = h;
+        }
         glow.setAlpha(Math.round(255 * reveal));
         canvas.drawRect(0, 0, w, h, glow);
 

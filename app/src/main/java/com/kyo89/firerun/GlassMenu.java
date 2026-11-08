@@ -26,6 +26,7 @@ final class GlassMenu {
         final Runnable action;
         boolean danger;
         boolean dividerBefore;
+        int icon;
 
         Item(String label, Runnable action) {
             this.label = label;
@@ -39,6 +40,11 @@ final class GlassMenu {
 
         Item divider() {
             dividerBefore = true;
+            return this;
+        }
+
+        Item icon(int res) {
+            icon = res;
             return this;
         }
     }
@@ -101,6 +107,7 @@ final class GlassMenu {
         for (final Item it : items) {
             if (it.dividerBefore) panel.addView(divider(a));
             TextView row = menuRow(a, it.label, it.danger);
+            if (it.icon != 0) setRowIcon(a, row, it.icon, it.danger);
             row.setOnClickListener(v -> {
                 d.dismiss();
                 it.action.run();
@@ -155,6 +162,20 @@ final class GlassMenu {
                 new int[][]{{android.R.attr.state_focused}, {}},
                 new int[]{Ui.WHITE, danger ? Ui.DANGER : Ui.WHITE}));
         return row;
+    }
+
+    /** Icona a sinistra della voce, dello stesso colore del testo (bianca quando selezionata). */
+    static void setRowIcon(Context c, TextView row, int res, boolean danger) {
+        android.graphics.drawable.Drawable d = c.getDrawable(res);
+        if (d == null) return;
+        d = d.mutate();
+        int s = Ui.dp(c, 17);
+        d.setBounds(0, 0, s, s);
+        row.setCompoundDrawablesRelative(d, null, null, null);
+        row.setCompoundDrawablePadding(Ui.dp(c, 11));
+        row.setCompoundDrawableTintList(new ColorStateList(
+                new int[][]{{android.R.attr.state_focused}, {}},
+                new int[]{Ui.WHITE, danger ? Ui.DANGER : 0xD9FFFFFF}));
     }
 
     static View divider(Context c) {
