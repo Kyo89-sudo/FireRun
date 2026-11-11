@@ -3,7 +3,8 @@
 ## dumbtv
 
 Il servizio Tasto Home di FireRun (`HomeRedirectService.java`), l'apertura delle
-Impostazioni e dell'Appstore e le impostazioni ADB del Tasto Home in `tools/deploy.ps1`
+Impostazioni e dell'Appstore e le impostazioni ADB del Tasto Home in `tools/deploy.ps1`, le liste di pacchetti della
+pulizia (`-Pulizia`, `-PuliziaProfonda`) e i valori dell'interruttore Privacy (`Privacy.java`)
 sono ripresi e adattati da **dumbtv** — https://github.com/humblemuzzu/dumbtv
 
 ```

@@ -1139,6 +1139,35 @@ public class MainActivity extends Activity {
                                     + "powershell -ExecutionPolicy Bypass -File .\\deploy.ps1 -FireStick <IP> -AttivaTastoHome");
                 });
 
+        final boolean privOn = Privacy.isOn(this);
+        final boolean privCan = Privacy.canWrite(this);
+        addRow(g1, rows, "Privacy (niente tracciamento)",
+                privOn ? "Attiva" : (privCan ? "Disattiva" : "deploy.ps1 -AttivaTastoHome"),
+                privOn ? Ui.OK_GREEN : (privCan ? Ui.TEXT_DIM : Ui.ACCENT_LIGHT), holder, i -> {
+                    if (!privCan) {
+                        GlassMenu.message(this, "Privacy",
+                                "Spegne tracciamento pubblicitario, annunci personalizzati, invio dei dati "
+                                        + "di utilizzo, video automatici in primo piano e notifiche a comparsa. "
+                                        + "Gli aggiornamenti di Fire OS restano attivi.\n\n"
+                                        + "Serve un permesso che si concede solo dal PC, una volta:\n\n"
+                                        + "powershell -ExecutionPolicy Bypass -File .\\deploy.ps1 -FireStick <IP> -AttivaTastoHome");
+                        return;
+                    }
+                    if (!Privacy.set(this, !privOn)) {
+                        Toast.makeText(this, "Alcune impostazioni non sono state cambiate", Toast.LENGTH_LONG).show();
+                    }
+                    showOptions(i);
+                });
+        addRow(g1, rows, "Pulizia pacchetti Amazon", "dal PC ›", Ui.TEXT_DIM, holder, i ->
+                GlassMenu.message(this, "Pulizia pacchetti Amazon",
+                        "Disattiva (non disinstalla) 34 pacchetti Amazon di pubblicità, riconoscimento dei "
+                                + "contenuti (ACR) e telemetria. Gli aggiornamenti di Fire OS non vengono toccati.\n\n"
+                                + "Dalla cartella tools, in PowerShell:\n"
+                                + "deploy.ps1 -FireStick <IP> -Pulizia -Anteprima   (solo mostra)\n"
+                                + "deploy.ps1 -FireStick <IP> -Pulizia\n"
+                                + "deploy.ps1 -FireStick <IP> -PuliziaProfonda\n"
+                                + "deploy.ps1 -FireStick <IP> -Ripristina   (torna com'era)"));
+
         LinearLayout g2 = group(panel);
         final boolean hasImage = wallpaperFile().isFile();
         addRow(g2, rows, "Sfondo", ShelfView.NAMES[theme], Ui.TEXT_DIM, holder, i -> {

@@ -31,6 +31,8 @@ e Android TV.
 | **Tasto Home** | Premendo Home torni a FireRun e non alla home Amazon, che non si vede nemmeno per un istante. |
 | **Accensione e standby** | All'avvio e al risveglio compare FireRun. |
 | **Aggiornamenti** | Si aggiorna da solo dalle release di GitHub. |
+| **Privacy** | Un interruttore nelle Opzioni spegne tracciamento pubblicitario, invio dei dati di utilizzo, video automatici e notifiche a comparsa. Spegnendolo torna tutto com'era. |
+| **Pulizia Amazon** | Dal PC disattiva 34 pacchetti di pubblicità, ACR e telemetria, con anteprima e ripristino. Gli aggiornamenti di Fire OS restano attivi. |
 
 ## Compatibilità
 
@@ -79,8 +81,12 @@ script dal PC: è l'unico modo per avere anche il ritorno istantaneo.
 | Opzione | Cosa fa |
 |---|---|
 | `-FireStick <IP>` | Si collega e installa l'ultima versione, solo se più nuova di quella presente. |
-| `-AttivaTastoHome` | Attiva il servizio Tasto Home, il ritorno istantaneo (`min_futurity=0`) e l'avvio all'accensione. |
+| `-AttivaTastoHome` | Attiva il servizio Tasto Home, il ritorno istantaneo (`min_futurity=0`), l'avvio all'accensione e il permesso per l'interruttore Privacy. |
 | `-Sfondo "C:\…\foto.jpg"` | Invia un'immagine JPG, PNG o WEBP e la imposta come sfondo. |
+| `-Pulizia -Anteprima` | Mostra cosa farebbe la pulizia, senza cambiare nulla. |
+| `-Pulizia` | Disattiva (non disinstalla) 34 pacchetti Amazon di pubblicità, ACR e telemetria. Prima salva sul PC lo stato attuale; alla fine controlla che Impostazioni, Appstore, tastiera, telecomando e FireRun siano attivi, altrimenti annulla da sé. |
+| `-PuliziaProfonda` | Come `-Pulizia`, e in più toglie il funzionamento in sottofondo ai 5 pacchetti che Amazon non lascia disattivare (metrics, crashmanager, rdmapplication, ftvads.deeplinking, csapp). |
+| `-Ripristina` | Rimette pacchetti, sottofondo e impostazioni di privacy com'erano prima della pulizia. |
 | `-Force` | Reinstalla anche se la versione è la stessa. |
 | `-DisattivaHomeAmazon` / `-RiattivaHomeAmazon` | Prova a disattivare la home Amazon. Sconsigliato: su Fire OS 8 contiene anche le Impostazioni. |
 | `-Repo utente/nome` | Usa un altro repository per le release. |
@@ -90,6 +96,8 @@ Per installare in automatico ogni nuova versione, programma lo script ogni ora:
 ```
 schtasks /create /tn "FireRun deploy" /sc hourly /tr "powershell -NoProfile -ExecutionPolicy Bypass -File C:\percorso\deploy.ps1 -FireStick 192.168.1.50"
 ```
+
+La pulizia non tocca mai gli aggiornamenti di Fire OS (`forcedotaupdater`, `easyupgrade`, `software.ota`) né i pacchetti indispensabili. Le liste vengono da [dumbtv](https://github.com/humblemuzzu/dumbtv).
 
 ## Aggiornamenti
 
