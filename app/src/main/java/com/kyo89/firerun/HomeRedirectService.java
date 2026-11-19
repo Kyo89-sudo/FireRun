@@ -48,6 +48,7 @@ public class HomeRedirectService extends AccessibilityService {
     private static final long SHOWN_DELAY_MS = Build.VERSION.SDK_INT >= 34 ? 300 : 0;
     private static final long REPEAT_MS = 1000;
     private static final long BOOT_WINDOW_MS = 4 * 60 * 1000;   // "appena acceso" = primi 4 minuti
+    private static final long UPDATE_WINDOW_MS = 2 * 60 * 1000; // "appena aggiornato" = ultimi 2 minuti
 
     /** La home Amazon è stata aperta apposta (Opzioni): resta finché non si apre un'altra app. */
     private static volatile boolean paused;
@@ -164,13 +165,25 @@ public class HomeRedirectService extends AccessibilityService {
             registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
             screenOnRegistered = true;
         }
-        // All'accensione la home Amazon compare prima che il servizio parta: quell'evento è
-        // perso, quindi nei primi minuti dall'avvio portiamo FireRun davanti noi.
-        // Più tardi no: se il servizio ripartisse durante un film non deve toglierti dall'app.
-        if (SystemClock.elapsedRealtime() < BOOT_WINDOW_MS && prefs.redirectEnabled()
-                && !MainActivity.isVisible()) {
+        // All'accensione, e dopo un aggiornamento di FireRun, la home Amazon compare prima che
+        // il servizio riparta: quell'evento è perso, quindi in quei momenti portiamo FireRun
+        // davanti noi. In altri momenti no: se il servizio ripartisse durante un film non deve
+        // toglierti dall'app.
+        boolean justStarted = SystemClock.elapsedRealtime() < BOOT_WINDOW_MS || justUpdated();
+        if (justStarted && prefs.redirectEnabled() && !MainActivity.isVisible()) {
             onAmazonHome = true;
             handler.postDelayed(this::launchWhenCovered, 1500);
+        }
+    }
+
+    /** FireRun è stato appena installato o aggiornato (da sé o con deploy.ps1). */
+    private boolean justUpdated() {
+        try {
+            long t = getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime;
+            long ago = System.currentTimeMillis() - t;
+            return ago >= 0 && ago < UPDATE_WINDOW_MS;
+        } catch (Exception e) {
+            return false;
         }
     }
 
