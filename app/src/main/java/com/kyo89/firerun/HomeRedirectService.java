@@ -52,6 +52,12 @@ public class HomeRedirectService extends AccessibilityService {
     /** La home Amazon è stata aperta apposta (Opzioni): resta finché non si apre un'altra app. */
     private static volatile boolean paused;
     private static HomeRedirectService running;
+    /** Un avvio di FireRun è in coda nell'AlarmManager (per non annullarlo a vuoto a ogni finestra). */
+    private static volatile boolean armed;
+    /** Ultime finestre Amazon viste, per Opzioni → Diagnostica. Solo in memoria: prima ogni
+     *  cambio di schermata scriveva sul disco. */
+    private static final java.util.ArrayDeque<String> windows = new java.util.ArrayDeque<>();
+    private static final int MAX_WINDOWS = 15;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable uncover = this::uncover;
@@ -62,13 +68,15 @@ public class HomeRedirectService extends AccessibilityService {
     private boolean retryPending;
     private long lastLaunch;
     private boolean screenOnRegistered;
+    private Prefs prefs;
     /** Tastiere installate: compaiono sopra le altre app senza cambiare schermata. */
     private final java.util.Set<String> keyboards = new java.util.HashSet<>();
 
     private final BroadcastReceiver screenOn = new BroadcastReceiver() {
         @Override
         public void onReceive(Context c, Intent i) {
-            if (!paused && onAmazonHome && new Prefs(c).redirectEnabled()) launchWhenCovered();
+            loadKeyboards(); // una tastiera installata nel frattempo
+            if (!paused && onAmazonHome && prefs.redirectEnabled()) launchWhenCovered();
         }
     };
 
@@ -89,12 +97,24 @@ public class HomeRedirectService extends AccessibilityService {
 
     /** Annulla un avvio in coda: non deve riportarti su FireRun dopo che hai aperto un'app. */
     static void arrived(Context c) {
+        if (!armed) return;
+        armed = false;
         AlarmManager alarms = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
         if (alarms != null) alarms.cancel(launchIntent(c));
     }
 
-    static boolean isRunning() {
-        return running != null;
+    static java.util.List<String> recentWindows() {
+        synchronized (windows) {
+            return new java.util.ArrayList<>(windows);
+        }
+    }
+
+    private static void logWindow(String className, boolean redirected) {
+        String time = new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ITALY).format(new java.util.Date());
+        synchronized (windows) {
+            windows.addFirst(time + (redirected ? "  → FireRun  " : "  (ignorata)  ") + className);
+            while (windows.size() > MAX_WINDOWS) windows.removeLast();
+        }
     }
 
     // ================================================================ avvio di FireRun
@@ -102,6 +122,7 @@ public class HomeRedirectService extends AccessibilityService {
     private static void home(Context c, long delayMs) {
         AlarmManager alarms = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
         if (alarms == null) return;
+        armed = true;
         alarms.setExact(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime() + delayMs,
                 launchIntent(c));
     }
@@ -121,6 +142,7 @@ public class HomeRedirectService extends AccessibilityService {
     protected void onServiceConnected() {
         super.onServiceConnected();
         running = this;
+        prefs = new Prefs(this);
         try {
             View view = new View(this);
             view.setVisibility(View.GONE);
@@ -145,7 +167,7 @@ public class HomeRedirectService extends AccessibilityService {
         // All'accensione la home Amazon compare prima che il servizio parta: quell'evento è
         // perso, quindi nei primi minuti dall'avvio portiamo FireRun davanti noi.
         // Più tardi no: se il servizio ripartisse durante un film non deve toglierti dall'app.
-        if (SystemClock.elapsedRealtime() < BOOT_WINDOW_MS && new Prefs(this).redirectEnabled()
+        if (SystemClock.elapsedRealtime() < BOOT_WINDOW_MS && prefs.redirectEnabled()
                 && !MainActivity.isVisible()) {
             onAmazonHome = true;
             handler.postDelayed(this::launchWhenCovered, 1500);
@@ -184,7 +206,7 @@ public class HomeRedirectService extends AccessibilityService {
     public void onAccessibilityEvent(AccessibilityEvent e) {
         if (e == null || e.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
         CharSequence pkg = e.getPackageName(), cls = e.getClassName();
-        if (pkg == null) return;
+        if (pkg == null || prefs == null) return;
         String className = cls != null ? cls.toString() : "";
         // Toast, tastiera, popup: si sovrappongono alla schermata senza cambiarla.
         // Prima azzeravano lo stato e la home Amazon poteva restare davanti.
@@ -206,9 +228,8 @@ public class HomeRedirectService extends AccessibilityService {
         // credere di averla lasciata.
         if (className.isEmpty() || className.startsWith("android.")) return;
         onAmazonHome = AMAZON_HOME.equals(className);
-        Prefs prefs = new Prefs(this);
         boolean redirect = onAmazonHome && !paused && prefs.redirectEnabled();
-        prefs.logWindow(className, redirect);
+        logWindow(className, redirect);
         if (!redirect) {
             cancelRetry();
             return;

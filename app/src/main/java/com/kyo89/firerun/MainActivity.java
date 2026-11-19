@@ -72,7 +72,7 @@ public class MainActivity extends Activity {
     private final ExecutorService io = Executors.newSingleThreadExecutor();   // lettura app
     private final ExecutorService net = Executors.newSingleThreadExecutor();  // rete (aggiornamenti)
     private final Map<String, AppEntry> tagApps = new HashMap<>();
-    private final Map<String, Integer> colorCache = new HashMap<>();
+    private static final java.util.regex.Pattern MARKS = java.util.regex.Pattern.compile("\\p{M}+");
 
     private Prefs prefs;
     private List<AppEntry> apps = new ArrayList<>();
@@ -90,20 +90,27 @@ public class MainActivity extends Activity {
     private String focusTag;
     private String lastSignature;   // per non ricostruire la griglia se non è cambiato nulla
     private int loadGen, tileW, tileH, gap, margin, heroH, screenH;
-    private boolean receiverOn;
+    /** App installate/rimosse mentre FireRun non era davanti: ricarica al ritorno. */
+    private boolean packagesDirty = true;
+    private boolean started;
+    private java.text.DateFormat timeFormat, dateFormat;
 
+    // Registrato per tutta la vita dell'activity: prima veniva tolto in onStop e le app
+    // installate mentre si guardava altro comparivano solo ricaricando tutto a ogni ritorno.
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context c, Intent i) {
-            reload();
+            if (started) reload();
+            else packagesDirty = true;
         }
     };
 
+    /** Aggiorna l'orologio allo scoccare di ogni minuto (prima poteva restare indietro di 15 s). */
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
             updateClock();
-            ui.postDelayed(this, 15_000);
+            ui.postDelayed(this, 60_000 - System.currentTimeMillis() % 60_000 + 50);
         }
     };
 
@@ -115,23 +122,28 @@ public class MainActivity extends Activity {
         prefs = new Prefs(this);
         computeSizes();
         buildShell();
+        IntentFilter f = new IntentFilter();
+        f.addAction(Intent.ACTION_PACKAGE_ADDED);
+        f.addAction(Intent.ACTION_PACKAGE_REMOVED);
+        f.addAction(Intent.ACTION_PACKAGE_CHANGED);
+        f.addAction(Intent.ACTION_PACKAGE_REPLACED);
+        f.addDataScheme("package");
+        registerReceiver(packageReceiver, f);
     }
 
     @Override
     protected void onStart() {
         super.onStart();
-        if (!receiverOn) {
-            IntentFilter f = new IntentFilter();
-            f.addAction(Intent.ACTION_PACKAGE_ADDED);
-            f.addAction(Intent.ACTION_PACKAGE_REMOVED);
-            f.addAction(Intent.ACTION_PACKAGE_CHANGED);
-            f.addDataScheme("package");
-            registerReceiver(packageReceiver, f);
-            receiverOn = true;
-        }
+        started = true;
+        timeFormat = null; // il formato 12/24 h può essere cambiato nel frattempo
         ui.removeCallbacks(tick);
         ui.post(tick);
-        reload();
+        if (packagesDirty || apps.isEmpty()) {
+            packagesDirty = false;
+            reload();
+        } else if (heroApp != null) {
+            refreshHero(); // solo "Aperta … fa"
+        }
     }
 
     /** Letto dal servizio Tasto Home (stesso processo). */
@@ -160,15 +172,26 @@ public class MainActivity extends Activity {
     @Override
     protected void onStop() {
         super.onStop();
-        if (receiverOn) {
-            unregisterReceiver(packageReceiver);
-            receiverOn = false;
-        }
+        started = false;
         ui.removeCallbacks(tick);
+    }
+
+    /** Android chiede memoria: con FireRun dietro a un'app si liberano icone e sfondo non usati. */
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level < TRIM_MEMORY_UI_HIDDEN) return;
+        for (AppEntry a : apps) a.dropIconIfBanner();
+        if (prefs.theme() != ShelfView.THEME_IMAGE) releaseWallpaper();
     }
 
     @Override
     protected void onDestroy() {
+        try {
+            unregisterReceiver(packageReceiver);
+        } catch (RuntimeException ignored) {
+        }
+        ui.removeCallbacksAndMessages(null);
         io.shutdownNow();
         net.shutdownNow();
         super.onDestroy();
@@ -438,7 +461,7 @@ public class MainActivity extends Activity {
                     if (gen != loadGen || isFinishing() || isDestroyed()) return;
                     if (signature(list).equals(lastSignature)) {
                         // Nulla di cambiato: niente ricostruzione (niente sfarfallio), solo il Top Shelf aggiornato.
-                        if (heroApp != null) showHero(heroApp, focusTag != null && focusTag.startsWith(SEC_ALL) ? SEC_ALL : SEC_FAV);
+                        refreshHero();
                         return;
                     }
                     apps = list;
@@ -457,12 +480,16 @@ public class MainActivity extends Activity {
         return b.toString();
     }
 
+    private void refreshHero() {
+        if (heroApp != null) showHero(heroApp, focusTag != null && focusTag.startsWith(SEC_ALL) ? SEC_ALL : SEC_FAV);
+    }
+
     private void rebuildAll() {
         lastSignature = signature(apps);
         tagApps.clear();
-        colorCache.clear();
         byKey = new HashMap<>();
         for (AppEntry a : apps) byKey.put(a.key, a);
+        if (!apps.isEmpty()) prefs.pruneLaunches(byKey.keySet());
         firstFavView = null;
         firstAllView = null;
 
@@ -576,9 +603,10 @@ public class MainActivity extends Activity {
             glossView.setBackground(gloss);
             tile.addView(glossView, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            if (app.icon != null) {
+            Drawable icon = app.icon(getPackageManager());
+            if (icon != null) {
                 ImageView iv = new ImageView(this);
-                iv.setImageDrawable(copy(app.icon));
+                iv.setImageDrawable(copy(icon));
                 iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
                 int sz = Math.round(tileH * 0.58f);
                 tile.addView(iv, new FrameLayout.LayoutParams(sz, sz, Gravity.CENTER));
@@ -719,10 +747,9 @@ public class MainActivity extends Activity {
 
     /** Colore medio del banner (o dell'icona) per tingere il Top Shelf, come fa Apple TV. */
     private int appColor(AppEntry a) {
-        Integer cached = colorCache.get(a.key);
-        if (cached != null) return cached;
+        if (a.hasColor()) return a.color();
         int color = Ui.hue(a.pkg);
-        Drawable d = copy(a.banner != null ? a.banner : a.icon);
+        Drawable d = copy(a.banner != null ? a.banner : a.icon(getPackageManager()));
         if (d != null) {
             try {
                 Bitmap b = Bitmap.createBitmap(16, 9, Bitmap.Config.ARGB_8888);
@@ -750,7 +777,7 @@ public class MainActivity extends Activity {
             } catch (RuntimeException ignored) {
             }
         }
-        colorCache.put(a.key, color);
+        a.setColor(color);
         return color;
     }
 
@@ -766,17 +793,12 @@ public class MainActivity extends Activity {
         if (firstFavView != null) firstFavView.requestFocus();
     }
 
-    private void scrollToAll() {
-        if (firstAllView != null) firstAllView.requestFocus();
-        ui.post(() -> scroll.smoothScrollTo(0, Math.max(0, allHeader.getTop() - dp(24))));
-    }
-
     // ================================================================ azioni sulle app
 
     private static final String APPSTORE = "com.amazon.venezia";
 
     private void launch(AppEntry app) {
-        prefs.addRecent(app.key);
+        prefs.markLaunched(app.key);
         HomeRedirectService.arrived(this); // un ritorno a FireRun in coda non deve interrompere l'app
         try {
             startActivity(launchIntentFor(app));
@@ -857,7 +879,7 @@ public class MainActivity extends Activity {
         items.add(new GlassMenu.Item("Disinstalla", () -> startSafe(new Intent(
                 Intent.ACTION_DELETE, Uri.parse("package:" + app.pkg)))).divider().danger().icon(R.drawable.ic_trash));
 
-        GlassMenu.show(this, copy(app.icon), Ui.hue(app.pkg), app.label, app.pkg, items);
+        GlassMenu.show(this, copy(app.icon(getPackageManager())), Ui.hue(app.pkg), app.label, app.pkg, items);
     }
 
     private void moveDock(List<String> dock, int from, int to, AppEntry app) {
@@ -872,6 +894,7 @@ public class MainActivity extends Activity {
 
     private void showAddApps() {
         final List<String> dock = prefs.dock();
+        final List<String> before = new ArrayList<>(dock);
 
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
@@ -918,9 +941,10 @@ public class MainActivity extends Activity {
             final FrameLayout icon = new FrameLayout(this);
             icon.setBackground(Ui.round(this, 15, Ui.hue(a.pkg)));
             icon.setClipChildren(false);
-            if (a.icon != null) {
+            Drawable ic = a.icon(getPackageManager());
+            if (ic != null) {
                 ImageView iv = new ImageView(this);
-                iv.setImageDrawable(copy(a.icon));
+                iv.setImageDrawable(copy(ic));
                 icon.addView(iv, new FrameLayout.LayoutParams(dp(42), dp(42), Gravity.CENTER));
             }
             // Segno di spunta disegnato (il carattere ✓ può mancare nei font di Fire OS)
@@ -985,6 +1009,8 @@ public class MainActivity extends Activity {
         final Dialog d = GlassMenu.frame(this, panel, dp(720), Gravity.CENTER, 0);
         done.setOnClickListener(v -> d.dismiss());
         d.setOnDismissListener(di -> {
+            for (AppEntry a : apps) a.dropIconIfBanner(); // le icone servivano solo a questa finestra
+            if (dock.equals(before)) return;              // niente cambiato: niente ricostruzione
             prefs.setDock(dock);
             focusTag = null;
             rebuildAll();
@@ -1012,7 +1038,7 @@ public class MainActivity extends Activity {
         fbg.setStroke(Math.max(1, dp(1)), 0x33FFFFFF);
         field.setBackground(fbg);
         field.setPadding(dp(14), dp(10), dp(14), dp(10));
-        android.graphics.drawable.Drawable lens = getDrawable(R.drawable.ic_search).mutate();
+        Drawable lens = getDrawable(R.drawable.ic_search).mutate();
         lens.setBounds(0, 0, dp(18), dp(18));
         field.setCompoundDrawablesRelative(lens, null, null, null);
         field.setCompoundDrawablePadding(dp(10));
@@ -1046,7 +1072,7 @@ public class MainActivity extends Activity {
             }
             for (final AppEntry a : matches) {
                 TextView row = GlassMenu.menuRow(this, a.label, false);
-                android.graphics.drawable.Drawable ic = copy(a.icon);
+                Drawable ic = copy(a.icon(getPackageManager()));
                 if (ic != null) {
                     ic.setBounds(0, 0, dp(24), dp(24));
                     row.setCompoundDrawablesRelative(ic, null, null, null);
@@ -1084,7 +1110,7 @@ public class MainActivity extends Activity {
 
     private static String fold(String s) {
         String n = Normalizer.normalize(s.toLowerCase(Locale.ROOT), Normalizer.Form.NFD);
-        return n.replaceAll("\\p{M}+", "");
+        return MARKS.matcher(n).replaceAll("");
     }
 
     // ================================================================ opzioni
@@ -1175,6 +1201,8 @@ public class MainActivity extends Activity {
             if (next == ShelfView.THEME_IMAGE && !hasImage) next = (next + 1) % ShelfView.themeCount();
             prefs.setTheme(next);
             shelf.setTheme(next);
+            if (next == ShelfView.THEME_IMAGE) checkWallpaper(); // la carica solo ora
+            else releaseWallpaper();
             showOptions(i);
         });
         addRow(g2, rows, "Immagine di sfondo", hasImage ? "Rimuovi" : "dal PC: deploy.ps1 -Sfondo", Ui.TEXT_DIM,
@@ -1318,13 +1346,11 @@ public class MainActivity extends Activity {
     }
 
     private void showDiagnostics() {
-        List<String> w = prefs.recentWindows();
+        List<String> w = HomeRedirectService.recentWindows();
         GlassMenu.message(this, "Ultime finestre Amazon", w.isEmpty()
                 ? "Nessuna finestra registrata. Attiva il servizio Tasto Home e premi Home."
                 : TextUtils.join("\n", w));
     }
-
-    // ================================================================ aggiornamenti
 
     // ================================================================ immagine di sfondo dal PC
 
@@ -1375,9 +1401,17 @@ public class MainActivity extends Activity {
         return false;
     }
 
+    /** Toglie dalla memoria l'immagine di sfondo (resta il file, la si ricarica quando serve). */
+    private void releaseWallpaper() {
+        loadedWallpaperStamp = 0;
+        shelf.setImage(null);
+    }
+
     private void checkWallpaper() {
-        final int maxW = Math.max(getResources().getDisplayMetrics().widthPixels,
-                getResources().getDisplayMetrics().heightPixels);
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        final int sw = Math.max(dm.widthPixels, dm.heightPixels);
+        final int sh = Math.min(dm.widthPixels, dm.heightPixels);
+        final boolean wanted = prefs.theme() == ShelfView.THEME_IMAGE;
         try {
             io.execute(() -> {
                 final boolean imported = importWallpaperFromDownload();
@@ -1385,8 +1419,7 @@ public class MainActivity extends Activity {
                 if (!f.isFile()) {
                     ui.post(() -> {
                         if (isDestroyed()) return;
-                        loadedWallpaperStamp = 0;
-                        shelf.setImage(null);
+                        releaseWallpaper();
                         if (prefs.theme() == ShelfView.THEME_IMAGE) {
                             prefs.setTheme(0);
                             shelf.setTheme(0);
@@ -1394,9 +1427,11 @@ public class MainActivity extends Activity {
                     });
                     return;
                 }
+                // Con un altro sfondo scelto l'immagine non si tiene in memoria.
+                if (!imported && !wanted) return;
                 final long stamp = f.lastModified() ^ (f.length() << 20);
                 if (!imported && stamp == loadedWallpaperStamp) return;
-                final Bitmap b = decodeScaled(f, maxW);
+                final Bitmap b = decodeFill(f, sw, sh);
                 ui.post(() -> {
                     if (isDestroyed()) return;
                     if (b == null) {
@@ -1416,19 +1451,36 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Legge l'immagine ridotta alla risoluzione dello schermo (le foto da 20 MP esaurirebbero la memoria). */
-    private static Bitmap decodeScaled(java.io.File f, int targetW) {
+    /**
+     * Legge l'immagine già ritagliata e ridotta esattamente alla misura dello schermo
+     * ("riempi e ritaglia"). Prima poteva restare in memoria fino al doppio della
+     * risoluzione per lato (4 volte i pixel) e veniva ridimensionata a ogni fotogramma.
+     */
+    private static Bitmap decodeFill(java.io.File f, int w, int h) {
+        Bitmap b = null;
         try {
             android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
             o.inJustDecodeBounds = true;
             android.graphics.BitmapFactory.decodeFile(f.getPath(), o);
-            if (o.outWidth <= 0 || o.outHeight <= 0) return null;
+            if (o.outWidth <= 0 || o.outHeight <= 0 || w <= 0 || h <= 0) return null;
             int sample = 1;
-            while (o.outWidth / (sample * 2) >= targetW && o.outHeight / (sample * 2) >= targetW * 9 / 16) sample *= 2;
+            while (o.outWidth / (sample * 2) >= w && o.outHeight / (sample * 2) >= h) sample *= 2;
             android.graphics.BitmapFactory.Options d = new android.graphics.BitmapFactory.Options();
             d.inSampleSize = sample;
-            return android.graphics.BitmapFactory.decodeFile(f.getPath(), d);
+            b = android.graphics.BitmapFactory.decodeFile(f.getPath(), d);
+            if (b == null) return null;
+            int iw = b.getWidth(), ih = b.getHeight();
+            if (iw == w && ih == h) return b;
+            float scale = Math.max(w / (float) iw, h / (float) ih);
+            int cw = Math.min(iw, Math.round(w / scale)), ch = Math.min(ih, Math.round(h / scale));
+            Rect src = new Rect((iw - cw) / 2, (ih - ch) / 2, (iw - cw) / 2 + cw, (ih - ch) / 2 + ch);
+            Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            new Canvas(out).drawBitmap(b, src, new Rect(0, 0, w, h),
+                    new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG));
+            b.recycle();
+            return out;
         } catch (OutOfMemoryError | RuntimeException e) {
+            if (b != null) b.recycle();
             return null;
         }
     }
@@ -1436,13 +1488,12 @@ public class MainActivity extends Activity {
     private void removeWallpaper() {
         //noinspection ResultOfMethodCallIgnored
         wallpaperFile().delete();
-        loadedWallpaperStamp = 0;
-        shelf.setImage(null);
+        releaseWallpaper();
         prefs.setTheme(0);
         shelf.setTheme(0);
     }
 
-    // ================================================================ aggiornamenti (continua)
+    // ================================================================ aggiornamenti
 
     private void checkUpdate(final boolean manual) {
         long now = System.currentTimeMillis();
@@ -1514,11 +1565,14 @@ public class MainActivity extends Activity {
 
     private void updateClock() {
         if (clock == null) return;
+        if (timeFormat == null) {
+            timeFormat = android.text.format.DateFormat.getTimeFormat(this);
+            dateFormat = new java.text.SimpleDateFormat("EEE d MMM", Locale.getDefault());
+        }
         Date now = new Date();
-        clock.setText(android.text.format.DateFormat.getTimeFormat(this).format(now));
+        clock.setText(timeFormat.format(now));
         // "dom 8 nov": giorno e mese abbreviati, senza il punto che alcune lingue aggiungono
-        String d = new java.text.SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(now).replace(".", "");
-        dateView.setText(d);
+        dateView.setText(dateFormat.format(now).replace(".", ""));
     }
 
     /**
@@ -1526,10 +1580,12 @@ public class MainActivity extends Activity {
      * nei preferiti, nella griglia e nei menu va duplicata, altrimenti sparisce
      * o si deforma.
      */
-    private android.graphics.drawable.Drawable copy(android.graphics.drawable.Drawable d) {
+    private Drawable copy(Drawable d) {
         if (d == null) return null;
-        android.graphics.drawable.Drawable.ConstantState cs = d.getConstantState();
-        return cs != null ? cs.newDrawable(getResources()).mutate() : d;
+        // newDrawable condivide la bitmap: nessuna copia in memoria (mutate() non serve,
+        // le icone non vengono mai ricolorate).
+        Drawable.ConstantState cs = d.getConstantState();
+        return cs != null ? cs.newDrawable(getResources()) : d;
     }
 
     private void toast(String s) {

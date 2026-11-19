@@ -42,13 +42,6 @@ final class Ui {
         return g;
     }
 
-    /** Pannello in vetro chiaro (barra di navigazione, dock). */
-    static GradientDrawable glass(Context c, float radiusDp) {
-        GradientDrawable g = round(c, radiusDp, 0x1AFFFFFF);
-        g.setStroke(Math.max(1, dp(c, 1)), 0x29FFFFFF);
-        return g;
-    }
-
     /** Pannello in vetro scuro (menu e finestre). Fire OS non sfoca, quindi è più opaco. */
     static GradientDrawable sheet(Context c, float radiusDp) {
         GradientDrawable g = round(c, radiusDp, 0xEB20232A);

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="fr_bg">#FF06202A</color>
+    <!-- Stesso nero di FireRun: all'avvio niente lampo di un altro colore -->
+    <color name="fr_bg">#FF0A0C10</color>
     <style name="Theme.FireRun" parent="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
         <item name="android:windowBackground">@color/fr_bg</item>
         <item name="android:windowNoTitle">true</item>

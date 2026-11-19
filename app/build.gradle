@@ -45,7 +45,11 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false
+            // R8: toglie il codice inutilizzato e ottimizza (APK più piccolo, meno memoria).
+            // Niente riflessione nel progetto: le regole standard bastano.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
             // Senza chiave la build release resta non firmata (non installabile):
             // per provare in locale usa assembleDebug.
             if (hasKey) signingConfig signingConfigs.fire

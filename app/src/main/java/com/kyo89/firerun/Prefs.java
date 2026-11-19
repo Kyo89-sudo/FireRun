@@ -3,25 +3,24 @@ package com.kyo89.firerun;
 import android.content.Context;
 import android.content.SharedPreferences;
 
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /** Impostazioni persistenti di FireRun. */
 final class Prefs {
     private static final String FILE = "firerun";
     private static final String SEP = "\n";
-    private static final int MAX_RECENTS = 12;
-    private static final int MAX_WINDOWS = 15;
+    private static final String LAUNCH = "t:";
 
     private final SharedPreferences sp;
 
     Prefs(Context c) {
         sp = c.getApplicationContext().getSharedPreferences(FILE, Context.MODE_PRIVATE);
+        // Voci delle versioni precedenti che non servono più
+        if (sp.contains("rec") || sp.contains("windows")) sp.edit().remove("rec").remove("windows").apply();
     }
 
     // --- barra delle app (dock) ---
@@ -38,22 +37,26 @@ final class Prefs {
         sp.edit().putString("dock", join(keys)).apply();
     }
 
-    // --- recenti ---
+    // --- ultima apertura (mostrata nel Top Shelf) ---
 
-    List<String> recents() {
-        return split(sp.getString("rec", ""));
-    }
-
-    void addRecent(String key) {
-        List<String> l = recents();
-        l.remove(key);
-        l.add(0, key);
-        while (l.size() > MAX_RECENTS) l.remove(l.size() - 1);
-        sp.edit().putString("rec", join(l)).putLong("t:" + key, System.currentTimeMillis()).apply();
+    void markLaunched(String key) {
+        sp.edit().putLong(LAUNCH + key, System.currentTimeMillis()).apply();
     }
 
     long lastLaunch(String key) {
-        return sp.getLong("t:" + key, 0L);
+        return sp.getLong(LAUNCH + key, 0L);
+    }
+
+    /** Toglie le date delle app non più installate (prima restavano per sempre). */
+    void pruneLaunches(Collection<String> installedKeys) {
+        SharedPreferences.Editor e = null;
+        for (String k : sp.getAll().keySet()) {
+            if (k.startsWith(LAUNCH) && !installedKeys.contains(k.substring(LAUNCH.length()))) {
+                if (e == null) e = sp.edit();
+                e.remove(k);
+            }
+        }
+        if (e != null) e.apply();
     }
 
     // --- app nascoste dalla griglia ---
@@ -93,18 +96,6 @@ final class Prefs {
 
     void setRedirectEnabled(boolean on) {
         sp.edit().putBoolean("redirect", on).apply();
-    }
-
-    List<String> recentWindows() {
-        return split(sp.getString("windows", ""));
-    }
-
-    void logWindow(String className, boolean redirected) {
-        List<String> l = recentWindows();
-        String time = new SimpleDateFormat("HH:mm:ss", Locale.ITALY).format(new Date());
-        l.add(0, time + (redirected ? "  → FireRun  " : "  (ignorata)  ") + className);
-        while (l.size() > MAX_WINDOWS) l.remove(l.size() - 1);
-        sp.edit().putString("windows", join(l)).apply();
     }
 
     // --- aggiornamenti ---
